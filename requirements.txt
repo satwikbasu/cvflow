@@ -1,0 +1,10 @@
+# Pin versions when implementation begins.
+python-telegram-bot      # Telegram interface (Goals 1,4,7,8,9,10)
+python-jobspy            # multi-board job discovery (Goal 1)
+playwright               # browser automation for form filling & auth (Goals 5,6,7)
+google-genai             # Gemini free-tier LLM client (ranking, analysis, tailoring)
+apscheduler              # in-process daily scheduling + heartbeat (Goal 10)
+cryptography             # Fernet encryption of tokens/cookies at rest
+pyyaml                   # config loading
+# SQLite is in the Python stdlib (sqlite3); no dependency needed.
+# LaTeX (TeX Live / latexmk) is a system package, not a pip dependency.

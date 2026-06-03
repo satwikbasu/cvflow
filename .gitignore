@@ -5,9 +5,9 @@ config.yml
 *.env
 
 # Persistent runtime data: SQLite DB, generated PDFs, tokens, cookies, sessions
-data/
+data/*
 !data/README.md
-logs/
+logs/*
 !logs/README.md
 
 # The user's real profile / knowledge base & filled form fields are private.
