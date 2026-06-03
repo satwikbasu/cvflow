@@ -45,7 +45,7 @@ The LLMs are **remote** (NIM brain + Gemini tailoring are API calls — no local
 - `t2.micro`/`t3.micro` (1 GB) → too tight; headed Chromium will OOM/thrash. **Avoid.**
 - **`t3.small` (2 GB) → the sweet spot.**
 - `t3.medium` (4 GB) → comfortable but ~$30/mo, burns credits in ~3 months.
-- Disk: `texlive-full` is ~5 GB → use a **20–30 GB gp3** root volume.
+- Disk: a **20–30 GB gp3** root volume (Tectonic keeps LaTeX small; would be tighter with `texlive-full`).
 
 ## The cost-safety rules (avoid the Elastic IP trap)
 
@@ -112,9 +112,19 @@ sudo apt update && sudo apt -y upgrade
 sudo apt -y install python3.11 python3.11-venv python3-pip git
 # Headed-browser support + virtual display for Playwright (Goals 5,6,7)
 sudo apt -y install xvfb
-# LaTeX toolchain for resume compilation (~5 GB; takes a while)
-sudo apt -y install texlive-full latexmk
+# LaTeX: use Tectonic (single self-contained binary, ~tens of MB) instead of
+# texlive-full (~5 GB). Tectonic downloads only the packages the resume actually
+# uses on first compile, then caches them — local, free, private (no PII leaves).
+curl --proto '=https' --tlsv1.2 -fsSL https://drop-sh.fullyjustified.net | sh
+sudo mv tectonic /usr/local/bin/
 ```
+
+> **Why not `texlive-full` / a hosted LaTeX API / Overleaf?** `texlive-full` wastes ~5 GB on the small box.
+> Hosted LaTeX→PDF APIs are mostly paid/rate-limited **and would ship resume PII to a third party** (breaks
+> both the zero-cost invariant and the privacy posture); Overleaf has no real public compile API. Tectonic
+> keeps compilation **local, free, and private** with a tiny footprint. Set `resume.latex_compiler: "tectonic"`
+> in `config.yaml` (Phase 6 wires the compile call). Fallback if you prefer apt: `texlive-latex-recommended`
+> + `texlive-fonts-recommended` + `texlive-latex-extra` (~1–2 GB) instead of the full distribution.
 
 ### 4. Dedicated unprivileged user (security posture)
 
