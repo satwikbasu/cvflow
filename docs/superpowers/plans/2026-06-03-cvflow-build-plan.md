@@ -49,7 +49,7 @@ Domain phases (1–5) are **independent of the orchestration-substrate decision*
 
 ## Phases
 
-### [ ] Phase 0 — Foundations
+### [x] Phase 0 — Foundations
 **Delivers:** runnable package skeleton, config loading, logging, test harness.
 - `src/cvflow/config.py` — load & validate `config.yaml` against `config.example.yaml` schema; typed config object.
 - Logging setup writing to `logs/` (rotating), also surfaced to Telegram later.
@@ -144,4 +144,5 @@ Domain phases (1–5) are **independent of the orchestration-substrate decision*
 
 ## Progress log
 
-- 2026-06-03: Repo initialized, project scaffolded, stack & decisions recorded. Build plan written. Profile + master resume populated. **Substrate locked = Hermes; brain = NIM meta/llama-3.3-70b-instruct (Nemotron rejected for latency); tailoring = Gemini 2.5 Flash. All three keys live-tested OK.** **Next: Phase 0.**
+- 2026-06-03: Repo initialized, project scaffolded, stack & decisions recorded. Build plan written. Profile + master resume populated. **Substrate locked = Hermes; brain = NIM meta/llama-3.3-70b-instruct (Nemotron rejected for latency); tailoring = Gemini 2.5 Flash. All three keys live-tested OK.**
+- 2026-06-03: **Phase 0 done.** `pyproject.toml` (pinned deps + pytest/ruff/mypy config), `src/cvflow/config.py` (typed/validated frozen `Config`, `ConfigError`, api-key stripping, HH:MM validation), `src/cvflow/logging_setup.py` (rotating file logging, idempotent). 9 tests green, ruff + mypy(strict) clean; loader verified against the real gitignored `config.yaml`. Sub-plan: `2026-06-03-phase-0-foundations.md`. **Next: Phase 1 (storage + approval-gate state machine).**

@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cvflow"
+version = "0.0.0"
+description = "Autonomous, self-hosted, zero-SaaS-cost job-application agent operated via Telegram."
+requires-python = ">=3.11"
+dependencies = [
+    # Runtime deps mirror requirements.txt (the deploy pin list).
+    # Hermes Agent is installed separately (single-curl), NOT via pip.
+    "python-jobspy>=1.1.80",   # multi-board job discovery (Goal 1)
+    "playwright>=1.44",        # browser automation (Goals 5,6,7)
+    "google-genai>=1.0",       # Gemini client for the resume-tailoring escalation
+    "cryptography>=42",        # Fernet encryption of tokens/cookies at rest
+    "pyyaml>=6.0",             # config loading
+    # SQLite is stdlib; LaTeX (TeX Live/latexmk) is a system package.
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+    "mypy>=1.10",
+    "types-PyYAML>=6.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src"]
+strict = true
+warn_unused_configs = true
