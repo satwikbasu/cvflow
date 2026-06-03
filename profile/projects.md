@@ -6,4 +6,4 @@
 |---|---|---|
 | indian-market-data-endpoints | https://github.com/satwikbasu/indian-market-data-endpoints | Python, httpx, HTTP reverse-engineering, iXBRL |
 | IPSec Tunnel Monitoring Dashboard | https://github.com/satwikbasu/tunnel-monitor-dashboard | React/TS/Vite, MUI, Python REST API, StrongSwan, systemd, nginx |
-| CRUDbot | _(link TBD)_ | Spring Boot, PostgreSQL, Docker, OpenAI API (planned) |
+| CRUDbot | https://github.com/satwikbasu/crudbot | Spring Boot, PostgreSQL, Docker, OpenAI API (planned) |

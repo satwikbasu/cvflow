@@ -1,6 +1,6 @@
 # CRUDbot
 
-- **Repo:** <!-- to fill: GitHub URL not provided yet -->
+- **Repo:** https://github.com/satwikbasu/crudbot
 - **What it is:** A CRUD-based backend for managing notes, URLs, and reminders.
 - **Details:** Integrated PostgreSQL for persistent storage and Docker for containerized deployment.
 - **Planned expansion:** OpenAI API-powered smart note organization.
