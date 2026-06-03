@@ -24,7 +24,7 @@ The roadmap, phase order, exit criteria, and full decision log live in **`docs/s
 
 **Orchestration substrate = Hermes Agent** (Nous Research, self-hosted, MIT-ish). Hermes is the always-on runtime and provides the **Telegram interface, scheduling, the LLM brain, and the browser runtime**. cvflow's job is to supply **deterministic domain skills** that Hermes calls — discovery, JD analysis, resume tailoring, storage, and crucially the **approval gate**. The agent's probabilistic loop may *invoke* these skills but can never substitute for them.
 
-**LLM:** brain = `nvidia/llama-3.3-nemotron-super-49b-v1` on the NVIDIA NIM free tier (tool-calling tuned, ~40 RPM / no hard daily cap — suited to an agent's many calls), configured inside Hermes via `hermes model`. Resume tailoring escalates to **Gemini 2.5 Flash** (low volume, higher quality).
+**LLM:** brain = `meta/llama-3.3-70b-instruct` on the NVIDIA NIM free tier (fast ~1.5–2s, non-reasoning, good tool-calling, 128k ctx, ~40 RPM / no hard daily cap), configured inside Hermes via `hermes model`. Resume tailoring escalates to **Gemini 2.5 Flash** (low volume, higher quality). *(Nemotron Super 49B v1.5 was tested and rejected — as a reasoning model its latency hit ~3.5 min on the free tier, unusable for an agent.)*
 
 | Subpackage (`src/cvflow/`) | Responsibility | Goals |
 |---|---|---|
@@ -46,7 +46,7 @@ Hermes supplies messaging (Telegram), scheduling, the heartbeat, and the browser
 
 ## Tech stack
 
-Python 3.11+ · **Hermes Agent** (runtime: Telegram + scheduling + browser + LLM routing) · NVIDIA NIM `nemotron-super-49b` brain + Gemini 2.5 Flash (tailoring) · SQLite · JobSpy · Playwright · modular LaTeX + TeX Live · systemd · Fernet. Rationale for each choice is in the build plan.
+Python 3.11+ · **Hermes Agent** (runtime: Telegram + scheduling + browser + LLM routing) · NVIDIA NIM `llama-3.3-70b-instruct` brain + Gemini 2.5 Flash (tailoring) · SQLite · JobSpy · Playwright · modular LaTeX + TeX Live · systemd · Fernet. Rationale for each choice is in the build plan.
 
 ## Commands
 
