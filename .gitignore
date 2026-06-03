@@ -10,12 +10,10 @@ data/*
 logs/*
 !logs/README.md
 
-# The user's real profile / knowledge base & filled form fields are private.
-# Only *.example.* templates are tracked.
-profile/*
-!profile/README.md
-!profile/*.example.md
-!profile/*.example.json
+# Profile knowledge base + form_fields.json are INTENTIONALLY committed to this
+# PRIVATE repo so the system can be deployed by `git clone` onto a server.
+# They contain PII but NO credentials. Do NOT re-ignore them.
+# (Credentials live only in config.yaml / data/, which stay gitignored above/below.)
 
 # The user's real master resume is private; only the template is tracked.
 resume/*

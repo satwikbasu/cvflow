@@ -18,7 +18,7 @@
 4. **Never fail silently.** Every skip / timeout / error is logged *and* reported to the user via Telegram.
 5. **Respect free-tier limits by design** (Gemini RPD, NIM RPM, JobSpy throttle). Cache and batch LLM calls.
 6. **Flag any path to cost.** Any change introducing a paid API / proxy / host / quota overage must be called out explicitly in the PR/commit.
-7. **Secrets & PII never hit git.** Only `*.example.*` templates are committed. Tokens/cookies are Fernet-encrypted at rest, `chmod 600`. Git identity = global config (never repo-local).
+7. **Credentials never hit git; profile PII is intentionally committed to this PRIVATE repo** (so deploy = `git clone`). `config.yaml`, `data/`, `logs/`, `resume/*` stay gitignored; `profile/` (incl. `form_fields.json`) is tracked. Tokens/cookies are Fernet-encrypted at rest, `chmod 600`. Git identity = global config (never repo-local).
 8. **DRY, YAGNI, surgical changes.** (See CLAUDE.md behavioral guidelines.)
 
 ---

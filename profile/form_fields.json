@@ -1,0 +1,23 @@
+{
+  "_comment": "Non-empty value = used directly. Empty string = known field NOT yet filled; the agent must ASK, never guess. Filled from the CV; unknowns left empty.",
+  "full_name": "Satwik Basu",
+  "email": "satwikbasu001@gmail.com",
+  "phone": "+91 8910913819",
+  "address_line1": "",
+  "address_city": "Kolkata",
+  "address_state": "West Bengal",
+  "address_postal_code": "",
+  "address_country": "India",
+  "date_of_birth": "",
+  "work_authorization": "",
+  "requires_sponsorship": "",
+  "salary_expectation": "",
+  "linkedin_url": "https://www.linkedin.com/in/satwik-basu-0819b0212",
+  "github_url": "https://github.com/satwikbasu",
+  "portfolio_url": "",
+  "willing_to_relocate": "",
+  "notice_period": "",
+  "current_company": "Codezin Technology Solutions",
+  "current_title": "Software Engineer",
+  "highest_degree": "B.Tech, Electronics and Communication Engineering, RCC Institute of Information Technology (2021-2025)"
+}
