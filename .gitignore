@@ -1,0 +1,55 @@
+# --- Secrets & runtime data (NEVER commit) ---
+config.yaml
+config.yml
+.env
+*.env
+
+# Persistent runtime data: SQLite DB, generated PDFs, tokens, cookies, sessions
+data/
+!data/README.md
+logs/
+!logs/README.md
+
+# The user's real profile / knowledge base & filled form fields are private.
+# Only *.example.* templates are tracked.
+profile/*
+!profile/README.md
+!profile/*.example.md
+!profile/*.example.json
+
+# The user's real master resume is private; only the template is tracked.
+resume/*
+!resume/README.md
+!resume/*.example.tex
+
+# OAuth tokens & browser auth state
+*token*.json
+*.session
+auth_state/
+storage_state*.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- LaTeX build artifacts ---
+*.aux
+*.log
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+# --- OS / editor ---
+.DS_Store
+*.swp
+.idea/
+.vscode/
