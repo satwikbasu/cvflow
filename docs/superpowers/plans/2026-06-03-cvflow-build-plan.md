@@ -57,7 +57,7 @@ Domain phases (1–5) are **independent of the orchestration-substrate decision*
 - `playwright install chromium`; document TeX Live install.
 **Exit:** `pytest` runs (even if just config tests); `ruff`/`mypy` clean; config loads from a sample `config.yaml`.
 
-### [ ] Phase 1 — Storage + State Machine (safety-critical core)
+### [x] Phase 1 — Storage + State Machine (safety-critical core)
 **Delivers:** the durable tracking store and the un-bypassable gate.
 - `src/cvflow/storage/` — SQLite schema & models for the application record (job ID, company, role, JD URL, discovery ts, application ts, status, tailored-PDF path, confirmation ref); `form_fields` JSON loader with populated-vs-empty-key semantics.
 - `src/cvflow/statemachine/` — explicit states (`discovered → pending_review → approved → applied`; plus `otp_timeout`, `skipped`, `failed`); legal-transition table; `approve()` is the *only* setter of `approved`; a `guard_can_submit(app)` that raises unless `status == approved`.
@@ -145,4 +145,5 @@ Domain phases (1–5) are **independent of the orchestration-substrate decision*
 ## Progress log
 
 - 2026-06-03: Repo initialized, project scaffolded, stack & decisions recorded. Build plan written. Profile + master resume populated. **Substrate locked = Hermes; brain = NIM meta/llama-3.3-70b-instruct (Nemotron rejected for latency); tailoring = Gemini 2.5 Flash. All three keys live-tested OK.**
-- 2026-06-03: **Phase 0 done.** `pyproject.toml` (pinned deps + pytest/ruff/mypy config), `src/cvflow/config.py` (typed/validated frozen `Config`, `ConfigError`, api-key stripping, HH:MM validation), `src/cvflow/logging_setup.py` (rotating file logging, idempotent). 9 tests green, ruff + mypy(strict) clean; loader verified against the real gitignored `config.yaml`. Sub-plan: `2026-06-03-phase-0-foundations.md`. **Next: Phase 1 (storage + approval-gate state machine).**
+- 2026-06-03: **Phase 0 done.** `pyproject.toml` (pinned deps + pytest/ruff/mypy config), `src/cvflow/config.py` (typed/validated frozen `Config`, `ConfigError`, api-key stripping, HH:MM validation), `src/cvflow/logging_setup.py` (rotating file logging, idempotent). 9 tests green, ruff + mypy(strict) clean; loader verified against the real gitignored `config.yaml`. Sub-plan: `2026-06-03-phase-0-foundations.md`.
+- 2026-06-03: **Phase 1 done (safety-critical core).** `statemachine/` — `Status` StrEnum + legal-transition table; `transition()` refuses `approved` as a target; `approve()` is the sole producer of `approved` (only from `pending_review`); `guard_can_submit()` raises `SubmissionBlocked` for every non-approved status. `storage/` — `ApplicationStore` (SQLite, `:memory:`-capable) keyed on stable `job_id` (dedup → `DuplicateJob`); `set_status` routes through the state machine so it can never write `approved`; `approve()` is the only store path to it; `FormFields` loader with populated/missing/`require` never-guess semantics. 31 tests green (22 new), ruff + mypy(strict) clean. Sub-plan: `2026-06-03-phase-1-storage-statemachine.md`. **Next: Phase 2 (Gemini tailoring client) or Phase 3 (KB loader).**

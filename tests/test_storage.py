@@ -1,0 +1,155 @@
+"""Tests for the SQLite application store and the form-fields loader (Phase 1)."""
+
+from pathlib import Path
+
+import pytest
+
+from cvflow.statemachine import IllegalTransition, Status
+from cvflow.storage import (
+    Application,
+    ApplicationStore,
+    DuplicateJob,
+    FormFields,
+    MissingField,
+    UnknownJob,
+)
+
+
+def _store() -> ApplicationStore:
+    return ApplicationStore(":memory:")
+
+
+def test_add_and_get_round_trip() -> None:
+    store = _store()
+    app = store.add("job-1", "Acme", "SRE", "https://acme.example/jobs/1")
+    assert isinstance(app, Application)
+    assert app.status is Status.DISCOVERED
+    fetched = store.get("job-1")
+    assert fetched is not None
+    assert fetched.company == "Acme"
+    assert fetched.role == "SRE"
+    assert fetched.discovered_at  # populated
+
+
+def test_duplicate_job_id_raises() -> None:
+    store = _store()
+    store.add("job-1", "Acme", "SRE", "u")
+    with pytest.raises(DuplicateJob):
+        store.add("job-1", "Other", "Dev", "u2")
+
+
+def test_get_missing_returns_none_and_exists() -> None:
+    store = _store()
+    assert store.get("nope") is None
+    assert store.exists("nope") is False
+    store.add("job-1", "Acme", "SRE", "u")
+    assert store.exists("job-1") is True
+
+
+def test_set_status_legal_transition_persists() -> None:
+    store = _store()
+    store.add("job-1", "Acme", "SRE", "u")
+    store.set_status("job-1", Status.PENDING_REVIEW)
+    assert store.get("job-1").status is Status.PENDING_REVIEW
+
+
+def test_set_status_illegal_transition_raises() -> None:
+    store = _store()
+    store.add("job-1", "Acme", "SRE", "u")
+    with pytest.raises(IllegalTransition):
+        store.set_status("job-1", Status.APPLIED)  # discovered -> applied is illegal
+
+
+def test_set_status_cannot_reach_approved() -> None:
+    store = _store()
+    store.add("job-1", "Acme", "SRE", "u")
+    store.set_status("job-1", Status.PENDING_REVIEW)
+    with pytest.raises(IllegalTransition):
+        store.set_status("job-1", Status.APPROVED)
+
+
+def test_approve_is_the_only_path_to_approved() -> None:
+    store = _store()
+    store.add("job-1", "Acme", "SRE", "u")
+    store.set_status("job-1", Status.PENDING_REVIEW)
+    store.approve("job-1")
+    assert store.get("job-1").status is Status.APPROVED
+
+
+def test_approve_from_wrong_state_raises() -> None:
+    store = _store()
+    store.add("job-1", "Acme", "SRE", "u")
+    with pytest.raises(IllegalTransition):
+        store.approve("job-1")  # still discovered
+
+
+def test_applied_at_set_on_apply() -> None:
+    store = _store()
+    store.add("job-1", "Acme", "SRE", "u")
+    store.set_status("job-1", Status.PENDING_REVIEW)
+    store.approve("job-1")
+    store.set_status("job-1", Status.APPLIED)
+    app = store.get("job-1")
+    assert app.status is Status.APPLIED
+    assert app.applied_at is not None
+
+
+def test_list_by_status_filters() -> None:
+    store = _store()
+    store.add("a", "A", "r", "u")
+    store.add("b", "B", "r", "u")
+    store.set_status("b", Status.SKIPPED)
+    discovered = store.list_by_status(Status.DISCOVERED)
+    assert [a.job_id for a in discovered] == ["a"]
+
+
+def test_unknown_job_raises() -> None:
+    store = _store()
+    with pytest.raises(UnknownJob):
+        store.set_status("ghost", Status.PENDING_REVIEW)
+
+
+def test_set_tailored_pdf_and_confirmation() -> None:
+    store = _store()
+    store.add("job-1", "Acme", "SRE", "u")
+    store.set_tailored_pdf("job-1", "data/resumes/job-1.pdf")
+    store.set_confirmation("job-1", "CONF-123")
+    app = store.get("job-1")
+    assert app.tailored_pdf_path == "data/resumes/job-1.pdf"
+    assert app.confirmation_ref == "CONF-123"
+
+
+# --- form fields loader ---
+
+EXAMPLE = Path("profile/form_fields.example.json")
+
+
+def test_form_fields_loads_and_splits_populated_vs_missing(tmp_path: Path) -> None:
+    p = tmp_path / "ff.json"
+    p.write_text(
+        '{"_comment": "x", "full_name": "Satwik", "salary_expectation": "", "phone": ""}'
+    )
+    ff = FormFields.load(p)
+    assert ff.values == {"full_name": "Satwik", "salary_expectation": "", "phone": ""}
+    assert ff.populated == {"full_name": "Satwik"}
+    assert sorted(ff.missing()) == ["phone", "salary_expectation"]
+
+
+def test_form_fields_require_raises_on_empty_and_unknown(tmp_path: Path) -> None:
+    p = tmp_path / "ff.json"
+    p.write_text('{"full_name": "Satwik", "salary_expectation": ""}')
+    ff = FormFields.load(p)
+    assert ff.require("full_name") == "Satwik"
+    assert ff.is_filled("full_name") is True
+    assert ff.is_filled("salary_expectation") is False
+    with pytest.raises(MissingField):
+        ff.require("salary_expectation")
+    with pytest.raises(MissingField):
+        ff.require("unknown_key")
+
+
+def test_form_fields_loads_committed_example_template() -> None:
+    if not EXAMPLE.exists():
+        pytest.skip("example template not present")
+    ff = FormFields.load(EXAMPLE)
+    assert "_comment" not in ff.values
