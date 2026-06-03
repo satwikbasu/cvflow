@@ -18,7 +18,7 @@ The roadmap, phase order, exit criteria, and full decision log live in **`docs/s
 2. **Never fabricate facts about the user.** All facts come from `profile/`. A field unanswerable from the knowledge base triggers the clarification loop — never a guess. (Goals 3, 8.)
 3. **Never fail silently.** Every skip, OTP timeout, and error is logged *and* reported to the user via Telegram. (Goals 7, 8, 9.)
 4. **Respect free-tier limits by design** (Gemini RPD, NIM RPM, JobSpy throttle) and **flag any change that introduces a cost** (paid API/proxy/host/overage).
-5. **Credentials never enter git; PII is intentionally committed to this PRIVATE repo.** `config.yaml`, `data/`, `logs/`, and `resume/*` (tokens, keys, cookies, runtime data, the real resume) stay gitignored. The `profile/` knowledge base + `form_fields.json` ARE committed on purpose (PII, no secrets) so the system deploys by `git clone` — do **not** re-ignore them. Tokens/cookies are Fernet-encrypted at rest, `chmod 600`.
+5. **Credentials never enter git; PII is intentionally committed to this PRIVATE repo.** `config.yaml`, `data/`, `logs/`, and the CV PDF (tokens, keys, cookies, runtime data) stay gitignored. The `profile/` knowledge base + `form_fields.json` and the **master resume LaTeX source** (`resume/*.tex`) ARE committed on purpose (PII, no secrets) so the system deploys by `git clone` — do **not** re-ignore them. Tokens/cookies are Fernet-encrypted at rest, `chmod 600`.
 
 ## Architecture (big picture)
 

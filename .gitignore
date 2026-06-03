@@ -15,10 +15,12 @@ logs/*
 # They contain PII but NO credentials. Do NOT re-ignore them.
 # (Credentials live only in config.yaml / data/, which stay gitignored above/below.)
 
-# The user's real master resume is private; only the template is tracked.
+# Master resume LaTeX SOURCE is committed (private repo, needed for deploy-by-clone &
+# tailoring). The CV PDF and any build artifacts stay out.
 resume/*
 !resume/README.md
-!resume/*.example.tex
+!resume/*.tex
+!resume/sections/
 
 # OAuth tokens & browser auth state
 *token*.json
