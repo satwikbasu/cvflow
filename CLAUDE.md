@@ -31,7 +31,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | Messaging | **Telegram Bot API** via `python-telegram-bot` | Long-polling needs **no public IP / TLS** (ideal behind home NAT); native inline keyboards; sends PDFs up to **50 MB** (> Discord's free 25 MB); single bot token. |
 | Job discovery | **JobSpy** (`python-jobspy`) | Actively maintained (16k★), one API across LinkedIn/Indeed/Glassdoor/Google/ZipRecruiter; free & open-source. More stable than hand-rolled scrapers. |
 | Browser automation | **Playwright (Python)** + `launch_persistent_context` | Persistent context reuses cookies/session across runs (Goals 5–7); auto-wait reduces flakiness; WebSocket transport. Run headed under `xvfb` on the server. Stealth plugin to reduce bot detection. |
-| LLM inference | **Google Gemini API free tier** (Gemini 2.5 Flash) | Genuinely free, no card; ~**1,500 req/day** (Flash-Lite) / lower for Flash/Pro, ~1M TPM. Used for ranking, JD analysis, tailoring, clarification drafting. **See privacy caveat below.** |
+| LLM inference (primary) | **Google Gemini API free tier** (Gemini 2.5 Flash) | Genuinely free, no card; ~**1,500 req/day** (Flash-Lite) / lower for Flash/Pro, ~1M TPM. Best quality of the free options — reserve for quality-sensitive steps (resume tailoring, clarification/essay drafting). **See privacy caveat below.** |
+| LLM inference (secondary/fallback) | **NVIDIA NIM** free tier (`build.nvidia.com`, `nvapi-` key) | Free, no card, **OpenAI-compatible**, ~40 RPM (upgradable to 200), 100+ open-weight models (Llama 3.3, Nemotron, Gemma…). Slightly lower quality than Gemini 2.5 Flash but adds headroom: use for high-volume/low-stakes work (bulk JD pre-filter & ranking triage) so Gemini's daily RPD is spent only where quality matters. |
 | Resume editing | Modular **LaTeX** (`\input` section files) + **TeX Live** (`latexmk`/`pdflatex`) | Structured edits swap/reorder section files instead of fragile regex on a monolith; reliable server-side PDF compile. |
 | Diff summary | `git diff` on `.tex` + section/bullet set comparison, narrated by Gemini | Plain-language, factual change summary for the review gate (Goal 4). |
 | App tracking store | **SQLite** | ACID, queryable, single-file, zero-cost; perfect for single-user durable status records (Goal 9). |
@@ -40,8 +41,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | Scheduling | **APScheduler** inside the daemon + **systemd** service | One long-lived process owns the daily trigger and heartbeat; systemd keeps it alive across reboots/crashes. (Plain cron is an acceptable fallback.) |
 | Secrets at rest | **Fernet** (`cryptography`) encryption + filesystem perms | Encrypt OAuth tokens / cookies; key kept outside the repo, files `chmod 600`. No paid secrets manager. |
 
-### LLM privacy caveat (deferred decision — flag before storing real PII)
-Google's **free** Gemini tier may use submitted data to improve products. This system feeds it the user's resume and personal data. Options to resolve later, in order of preference: (a) accept with informed consent, (b) redact PII before sending where feasible, (c) switch to a subscription-OAuth LLM with no per-call billing and no training-on-data (e.g. an OpenAI Codex/ChatGPT-subscription OAuth path), (d) local model if hardware allows. **Do not assume this is settled.**
+### LLM provider strategy & privacy caveat (partly deferred)
+- **`llm/` must be provider-agnostic** — a thin wrapper exposing one interface so Gemini and NVIDIA NIM (and later a paid key or local model) are swappable per-call. Route quality-sensitive calls to Gemini, bulk/triage calls to NIM, and let the wrapper fall back across providers when one hits its rate limit.
+- **Privacy:** the free Gemini tier (and likely NIM's free tier) may use submitted data to improve products, and this system feeds it the user's resume and PII. Resolution options, preferred order: (a) accept with informed consent, (b) redact PII before sending where feasible, (c) **self-hosted local model** (zero per-call cost *and* no data leaves the server) if the Ubuntu box has the hardware, (d) paid API key (breaks the zero-cost rule — flag if proposed). **Not settled — confirm before loading real PII.**
+- **Codex-via-ChatGPT-Go is NOT a viable brain here** (evaluated & rejected): ChatGPT Go does *not* include the full Codex agent / Agent Mode (only a mobile review-preview), and driving a ChatGPT-subscription OAuth as an unattended headless backend violates OpenAI's usage terms (account-ban risk). Codex also moved to API-token billing in 2026. Don't reintroduce this path.
 
 ## Cost constraints — how each piece stays free
 JobSpy / Playwright / python-telegram-bot / SQLite / TeX Live / APScheduler / Fernet are all open-source (server-only cost). Gemini API and Telegram Bot API are free tiers. **The architecture must respect free-tier rate limits by design** — batch and cache LLM calls, keep daily volume under Gemini RPD, throttle JobSpy to avoid IP bans. **Flag explicitly in code/PRs any change that creates a realistic path to cost** (paid API, paid proxy, paid host, exceeding a free tier).
@@ -74,6 +77,23 @@ cvflow/
 └── logs/                         # gitignored
 ```
 
+## Orchestration substrate — OPEN decision (evaluate before heavy build)
+
+Two paths for the daemon/orchestration layer (the messaging interface + multi-step task driving + browser automation glue):
+
+- **Path A — Standalone daemon** (what the current scaffold assumes): hand-built `python-telegram-bot` + Playwright + APScheduler. Maximum control, smallest/most auditable trust surface, but the most code to write.
+- **Path B — Build on an existing self-hosted agent framework** that already provides messaging + browser automation + multi-step autonomy + markdown/YAML memory. cvflow then contributes only its **domain tools** (JobSpy discovery, JD analysis, LaTeX tailoring, SQLite tracker) and the **deterministic approval gate**, which the framework calls. Far less glue code; depends on a young, fast-moving project that would hold OAuth tokens + PII.
+
+Candidates evaluated (all self-hosted, MIT-ish, Telegram-capable, BYO-LLM):
+| Framework | Note |
+|---|---|
+| **OpenClaw** | Biggest ecosystem & local orchestration, but largest trust surface — app-level checks in a shared-memory process (a bug/exploit can reach everything on the box). |
+| **Hermes Agent** (Nous Research, Feb 2026) | Persistent memory + closed skill-learning loop, 16+ messaging platforms, single-curl install, lower setup friction & security surface than OpenClaw. Strong first alternative to trial. |
+| **NanoClaw** | OS-level **container isolation** (Docker), per-group isolated filesystems — best blast-radius containment; attractive precisely because we handle tokens/PII. |
+| **TrustClaw** | Security-focused, sandboxed execution, OAuth-based tools, easier deploy. |
+
+**Standing decision regardless of path:** the Goal-4 approval gate and the "never fabricate facts" rule are **deterministic cvflow code**, never delegated to an agent's probabilistic loop. An agent framework may *call* the gate tool but can never satisfy it on its own. **Recommended next step:** trial **Hermes** (and a sandboxed option like **NanoClaw**) on a throwaway account before committing; if neither earns trust for token/PII handling, fall back to Path A.
+
 ## Key architectural decisions
 
 - **The review gate is a state machine, not a convention (Goal 4).** Applications live in `statemachine/`. The only legal path to `APPLYING`/`applied` is through `approved`, and `approved` is set **exclusively** by the Telegram approval callback handler. The submission entrypoint in `automation/` asserts `status == approved` and raises otherwise. This makes accidental bypass impossible — there is one choke point.
@@ -89,7 +109,8 @@ cvflow/
 4. **Mid-form clarification** (Goal 8) — pauses the browser session for the exact question, resumes on reply.
 
 ## Known limitations / risks / deferred decisions
-- **Gemini free-tier privacy** of personal data — unresolved (see caveat above).
+- **Orchestration substrate (Path A vs B)** — undecided; trial Hermes/NanoClaw before heavy build (see Orchestration section).
+- **LLM free-tier privacy** (Gemini and NIM may train on submitted PII) — unresolved (see caveat above).
 - **Anti-bot / ToS** — LinkedIn/Indeed/Glassdoor resist scraping and automated applying; expect breakage and account-risk. JobSpy endpoints drift (e.g. Glassdoor's Next.js migration). Keep scraping throttled; treat platform login accounts as expendable.
 - **OAuth-token / cookie theft** = full access to the linked Google/application accounts; **PII files** = identity exposure. Mitigations (no cost): dedicated **burner** Google account, dedicated unprivileged Linux user, Fernet encryption at rest, `chmod 600`, host firewall, secrets never in git. Document these wherever creds are stored.
 - **Free-tier rate limits** (Gemini RPD/RPM, JobSpy IP bans) bound daily throughput — design within them, don't assume unlimited.

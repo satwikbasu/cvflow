@@ -2,7 +2,8 @@
 python-telegram-bot      # Telegram interface (Goals 1,4,7,8,9,10)
 python-jobspy            # multi-board job discovery (Goal 1)
 playwright               # browser automation for form filling & auth (Goals 5,6,7)
-google-genai             # Gemini free-tier LLM client (ranking, analysis, tailoring)
+google-genai             # Gemini free-tier LLM client (quality-sensitive calls)
+openai                   # OpenAI-compatible client for NVIDIA NIM free tier (fallback/bulk)
 apscheduler              # in-process daily scheduling + heartbeat (Goal 10)
 cryptography             # Fernet encryption of tokens/cookies at rest
 pyyaml                   # config loading
