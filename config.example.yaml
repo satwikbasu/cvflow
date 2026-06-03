@@ -21,20 +21,21 @@ discovery:
   top_n_to_present: 8             # 5–10: how many ranked jobs to show daily (Goal 1)
 
 llm:
-  # Provider-agnostic: quality-sensitive calls -> gemini; bulk/triage -> nvidia_nim.
-  # The llm/ wrapper falls back across providers when one hits its rate limit.
-  primary: "gemini"
-  fallback: "nvidia_nim"
-  gemini:
-    api_key: ""                   # Google AI Studio free-tier key
-    model: "gemini-2.5-flash"
-    max_requests_per_day: 1400    # stay under free-tier RPD by design
-  nvidia_nim:
-    api_key: ""                   # build.nvidia.com key (nvapi-...); OpenAI-compatible
+  # BRAIN = the model Hermes uses for all agent reasoning + tool calls (configured in
+  # Hermes itself via `hermes model`; mirrored here for reference).
+  brain:
+    provider: "nvidia_nim"          # OpenAI-compatible; configured inside Hermes
+    api_key: ""                     # build.nvidia.com key (nvapi-...)
     base_url: "https://integrate.api.nvidia.com/v1"
-    model: "meta/llama-3.3-70b-instruct"
-    max_requests_per_minute: 40   # free-tier RPM (upgradable to 200)
-  # PRIVACY: free tiers may train on submitted data. See CLAUDE.md LLM caveat.
+    model: "nvidia/llama-3.3-nemotron-super-49b-v1"  # tool-calling tuned, 128k ctx
+    max_requests_per_minute: 40     # free-tier RPM (upgradable to 200); no hard daily cap
+  # Resume tailoring is escalated to Gemini for quality (low volume -> stays under RPD).
+  tailoring:
+    provider: "gemini"
+    api_key: ""                     # Google AI Studio free-tier key
+    model: "gemini-2.5-flash"
+    max_requests_per_day: 1400      # stay under free-tier RPD by design
+  # PRIVACY: both free tiers may train on submitted data (incl. your PII). See CLAUDE.md.
 
 resume:
   master_tex_path: "resume/master.tex"   # your modular master LaTeX resume

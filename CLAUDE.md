@@ -22,21 +22,23 @@ The roadmap, phase order, exit criteria, and full decision log live in **`docs/s
 
 ## Architecture (big picture)
 
-A single long-lived Python daemon owns scheduling, the Telegram interface, and browser automation so clarification/OTP loops can pause and resume a browser session while still receiving chat replies. Domain logic is path-independent of the orchestration substrate (a possible agent-framework swap is deferred — see plan Phase 7).
+**Orchestration substrate = Hermes Agent** (Nous Research, self-hosted, MIT-ish). Hermes is the always-on runtime and provides the **Telegram interface, scheduling, the LLM brain, and the browser runtime**. cvflow's job is to supply **deterministic domain skills** that Hermes calls — discovery, JD analysis, resume tailoring, storage, and crucially the **approval gate**. The agent's probabilistic loop may *invoke* these skills but can never substitute for them.
+
+**LLM:** brain = `nvidia/llama-3.3-nemotron-super-49b-v1` on the NVIDIA NIM free tier (tool-calling tuned, ~40 RPM / no hard daily cap — suited to an agent's many calls), configured inside Hermes via `hermes model`. Resume tailoring escalates to **Gemini 2.5 Flash** (low volume, higher quality).
 
 | Subpackage (`src/cvflow/`) | Responsibility | Goals |
 |---|---|---|
 | `config.py` | load & validate `config.yaml` | — |
 | `statemachine/` | application status state machine — **the un-bypassable review gate** | 4 |
 | `storage/` | SQLite tracking store + `form_fields.json` loader (populated vs empty keys) | 9 |
-| `llm/` | provider-agnostic wrapper: Gemini (quality) + NVIDIA NIM (bulk/fallback), rate-limited, cached | 1,2,3,8 |
+| `llm/` | thin client for the tailoring escalation to Gemini (the brain itself is configured in Hermes) | 3 |
 | `discovery/` | JobSpy multi-board search + cross-day dedup + LLM ranking → top 5–10 | 1 |
 | `analysis/` | fetch & parse full JD (skills, quals, seniority, tone, applicant instructions) | 2 |
 | `resume/` | tailor modular LaTeX per job, compile PDF, generate plain-language diff vs master | 3,4 |
-| `bot/` | Telegram: digests, approval prompts, OTP, clarifications, reports, heartbeat | 1,4,7,8,9,10 |
-| `automation/` | Playwright form filling (multi-page, uploads), pause/resume, proof capture | 5,8 |
+| `automation/` | form filling (multi-page, uploads), pause/resume, proof capture — runs as a Hermes skill | 5,8 |
 | `auth/` | Google OAuth + email-OTP fallback | 6,7 |
-| `scheduler/` | APScheduler daily trigger + heartbeat | 10 |
+
+Hermes supplies messaging (Telegram), scheduling, the heartbeat, and the browser runtime, so there is **no hand-built `bot/` or `scheduler/`** — those surface as Hermes config + thin skills (e.g. an approval-gate skill that sends the PDF/diff and awaits a structured reply).
 
 **Data flow:** scheduler → discovery (dedup+rank) → Telegram digest → user selects → analysis → resume tailoring → **approval gate (Telegram)** → automation (+ auth, clarification, OTP) → proof captured → storage updated → status report.
 
@@ -44,7 +46,7 @@ A single long-lived Python daemon owns scheduling, the Telegram interface, and b
 
 ## Tech stack
 
-Python 3.11+ · SQLite · python-telegram-bot (Telegram: no public IP, 50 MB files, inline keyboards) · JobSpy · Playwright (persistent context) · Gemini free tier + NVIDIA NIM free tier (provider-agnostic `llm/`) · modular LaTeX + TeX Live · APScheduler · systemd · Fernet. Rationale for each choice is in the build plan.
+Python 3.11+ · **Hermes Agent** (runtime: Telegram + scheduling + browser + LLM routing) · NVIDIA NIM `nemotron-super-49b` brain + Gemini 2.5 Flash (tailoring) · SQLite · JobSpy · Playwright · modular LaTeX + TeX Live · systemd · Fernet. Rationale for each choice is in the build plan.
 
 ## Commands
 
@@ -66,7 +68,7 @@ mypy src                                # type-check
 
 ## Deployment (Ubuntu)
 
-Run as a dedicated unprivileged user under a **systemd** unit (auto-restart across reboots/crashes); the browser runs headed under **xvfb**; APScheduler owns the daily trigger; a heartbeat reports liveness to Telegram. Use a **burner** Google account for OAuth. Details land in `docs/deploy.md` during Phase 11.
+Install Hermes (single-curl) and run it as a dedicated unprivileged user under a **systemd** unit (auto-restart); the browser runs headed under **xvfb**; Hermes owns the daily schedule + heartbeat; cvflow's skills are registered with Hermes. Use a **burner** Google account for OAuth. Details land in `docs/deploy.md` during Phase 11.
 
 ## Conventions
 

@@ -1,10 +1,13 @@
 # Pin versions when implementation begins.
-python-telegram-bot      # Telegram interface (Goals 1,4,7,8,9,10)
+#
+# Hermes Agent is the runtime (Telegram + scheduling + browser + LLM brain). It is
+# installed separately (single-curl installer), NOT via pip, and provides the brain
+# model (NVIDIA NIM nemotron-super-49b) — so there is no python-telegram-bot /
+# apscheduler / NIM client dependency here.
+
 python-jobspy            # multi-board job discovery (Goal 1)
-playwright               # browser automation for form filling & auth (Goals 5,6,7)
-google-genai             # Gemini free-tier LLM client (quality-sensitive calls)
-openai                   # OpenAI-compatible client for NVIDIA NIM free tier (fallback/bulk)
-apscheduler              # in-process daily scheduling + heartbeat (Goal 10)
+playwright               # browser automation skill for form filling & auth (Goals 5,6,7)
+google-genai             # Gemini client for the resume-tailoring escalation only
 cryptography             # Fernet encryption of tokens/cookies at rest
 pyyaml                   # config loading
 # SQLite is in the Python stdlib (sqlite3); no dependency needed.

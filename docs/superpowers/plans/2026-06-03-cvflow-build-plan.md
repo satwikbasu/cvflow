@@ -4,9 +4,9 @@
 
 **Goal:** Build cvflow — an autonomous, self-hosted, zero-SaaS-cost job-application agent operated entirely through Telegram, with a mandatory human approval gate before any application is submitted.
 
-**Architecture:** A single long-lived Python daemon (or an agent-framework substrate, decision in Phase 6) owns scheduling, the Telegram interface, and browser automation. Domain logic (discovery, JD analysis, resume tailoring, tracking) is built as path-independent modules. The Goal-4 approval gate and the "never fabricate facts" rule are **deterministic code**, never delegated to an LLM/agent loop.
+**Architecture:** **Hermes Agent** is the always-on substrate (Telegram, scheduling, browser runtime, LLM brain). cvflow supplies **deterministic domain skills** Hermes calls — discovery, JD analysis, resume tailoring, storage, and the approval gate. The Goal-4 approval gate and the "never fabricate facts" rule are **deterministic code**, never delegated to the agent loop.
 
-**Tech Stack:** Python 3.11+, SQLite, python-telegram-bot, JobSpy, Playwright, Gemini + NVIDIA NIM (provider-agnostic), modular LaTeX + TeX Live, APScheduler, systemd, Fernet.
+**Tech Stack:** Python 3.11+, Hermes Agent, NVIDIA NIM `nemotron-super-49b` (brain) + Gemini 2.5 Flash (tailoring), SQLite, JobSpy, Playwright, modular LaTeX + TeX Live, systemd, Fernet.
 
 ---
 
@@ -36,7 +36,7 @@ Domain phases (1–5) are **independent of the orchestration-substrate decision*
        │    └─ 6 Resume Tailoring (LaTeX)
        └─ 3 Knowledge-base loader
                  ↓
-       7 Orchestration-substrate DECISION (spike: Hermes / NanoClaw vs standalone)
+       7 Hermes integration (substrate setup; brain = NIM Nemotron Super 49B)
                  ↓
        8 Telegram interface (wires the gate)
        9 Browser automation (Playwright)
@@ -63,10 +63,10 @@ Domain phases (1–5) are **independent of the orchestration-substrate decision*
 - `src/cvflow/statemachine/` — explicit states (`discovered → pending_review → approved → applied`; plus `otp_timeout`, `skipped`, `failed`); legal-transition table; `approve()` is the *only* setter of `approved`; a `guard_can_submit(app)` that raises unless `status == approved`.
 **Exit:** tests prove illegal transitions raise, `approved` cannot be reached except via `approve()`, and `guard_can_submit` blocks every non-approved status. Dedup keyed by stable job ID is enforced.
 
-### [ ] Phase 2 — LLM layer
-**Delivers:** provider-agnostic LLM access with rate limiting.
-- `src/cvflow/llm/` — one interface; `GeminiProvider` (google-genai) and `NimProvider` (OpenAI-compatible); router (quality→Gemini, bulk→NIM) with cross-provider fallback on rate-limit; per-provider RPD/RPM tracking; response caching.
-**Exit:** tests (mocked HTTP) prove routing, fallback-on-429, RPD/RPM accounting, and cache hits. No live key needed for tests.
+### [ ] Phase 2 — LLM layer (tailoring client)
+**Delivers:** the Gemini client for the resume-tailoring escalation. (The agent brain — NIM Nemotron Super 49B — is configured inside Hermes in Phase 7, not here.)
+- `src/cvflow/llm/` — `GeminiProvider` (google-genai) with RPD tracking + response caching, used by the resume module.
+**Exit:** tests (mocked HTTP) prove the call path, RPD accounting, and cache hits. No live key needed for tests.
 
 ### [ ] Phase 3 — Knowledge-base loader
 **Delivers:** profile ingestion.
@@ -88,19 +88,22 @@ Domain phases (1–5) are **independent of the orchestration-substrate decision*
 - `src/cvflow/resume/` — operate on modular master (`master.tex` + `sections/*.tex`); reorder/emphasize sections & bullets per JD **without adding facts**; compile via `latexmk`; generate plain-language diff (section reorder + bullet changes + promoted/demoted skills) narrated by the LLM.
 **Exit:** tests prove a tailored `.tex` compiles to PDF, no new factual claims vs master (assert against KB), and a human-readable diff is produced.
 
-### [ ] Phase 7 — Orchestration-substrate DECISION (spike)
-**Delivers:** the Path A (standalone) vs Path B (agent framework) decision — see CLAUDE.md / Open Decisions below.
-- Time-boxed spike: trial **Hermes** and a sandboxed option (**NanoClaw**) on a throwaway account; verify (a) can enforce the deterministic gate by calling cvflow tools, (b) security posture for holding OAuth tokens + PII, (c) Telegram + Playwright integration quality.
-**Exit:** documented decision committed; Phases 8–11 scoped to the chosen path. Default fallback = Path A (standalone daemon).
+### [ ] Phase 7 — Hermes integration (substrate setup) — DECIDED
+**Decision (locked):** substrate = **Hermes Agent**. Brain = `nvidia/llama-3.3-nemotron-super-49b-v1` (NIM free tier); resume tailoring escalates to Gemini 2.5 Flash.
+**Delivers:** a running Hermes that can call cvflow skills.
+- Install Hermes; `hermes model` → configure NIM Nemotron Super 49B brain; configure Telegram (single authorized user).
+- Register cvflow's domain modules (discovery, analysis, resume, storage, gate) as Hermes **skills/tools**; confirm Hermes invokes them and that the deterministic gate skill cannot be bypassed by the agent loop.
+**Exit:** Hermes responds on Telegram, calls a trivial cvflow skill, and the brain handles a tool-calling round-trip. Security posture for token/PII handling reviewed.
 
-### [ ] Phase 8 — Telegram interface (Goals 1,4,7,8,9,10 surface)
-**Delivers:** the chat interface and the **gate wiring**.
-- `src/cvflow/bot/` — long-polling bot; daily digest with selection; **approval prompt with inline keyboard (approve & apply / request edits / skip)** whose approve callback is the sole caller of `statemachine.approve()`; OTP request flow; clarification Q&A flow; status reports; heartbeat. Authorized to a single Telegram user ID.
-**Exit:** tests (mocked Telegram) prove the approve callback is the only route to `approved`, unauthorized users are ignored, and PDFs/diffs/analysis are sent in the review message.
+### [ ] Phase 8 — Approval-gate skill + chat flows (Goals 1,4,7,8,9,10 surface)
+**Delivers:** the **gate wiring** and chat interactions as Hermes skills (Hermes provides the messaging transport).
+- Approval-gate skill: sends the tailored PDF + diff + JD analysis and presents **approve & apply / request edits / skip**; the approve path is the sole caller of `statemachine.approve()`.
+- Skills for: daily digest + selection, OTP request, clarification Q&A, status reports. Single authorized Telegram user enforced.
+**Exit:** tests (mocked transport) prove the approve path is the only route to `approved`, unauthorized users are ignored, and the review message carries PDF/diff/analysis.
 
-### [ ] Phase 9 — Browser automation (Goals 5, 8)
-**Delivers:** form filling + proof.
-- `src/cvflow/automation/` — Playwright `launch_persistent_context` (headed under xvfb, stealth); multi-page forms, uploads, dropdowns, checkboxes, free-text from KB/form-fields; pause→clarify→resume preserving state; capture proof (URL/confirmation#/screenshot/title).
+### [ ] Phase 9 — Browser automation skill (Goals 5, 8)
+**Delivers:** form filling + proof, as a Hermes skill.
+- `src/cvflow/automation/` — Playwright `launch_persistent_context` (headed under xvfb, stealth); multi-page forms, uploads, dropdowns, checkboxes, free-text from KB/form-fields; pause→clarify→resume preserving state; capture proof (URL/confirmation#/screenshot/title). (Evaluate Hermes's native browser tool vs our own Playwright skill; default to our own for deterministic gate enforcement.)
 **Exit:** tests against a local fixture form prove field filling, file upload, pause/resume, and proof capture. `guard_can_submit` is asserted at entry.
 
 ### [ ] Phase 10 — Auth (Goals 6, 7)
@@ -108,10 +111,10 @@ Domain phases (1–5) are **independent of the orchestration-substrate decision*
 - `src/cvflow/auth/` — Google OAuth (stored, Fernet-encrypted tokens; documented risks; burner account); email-OTP fallback that messages the user, waits up to timeout, marks `otp_timeout` + pauses on timeout (never silent).
 **Exit:** tests prove token encryption round-trip, OTP-wait timeout → `otp_timeout` + notification, and OTP success → resume.
 
-### [ ] Phase 11 — Scheduler + daemon wiring + deploy
+### [ ] Phase 11 — Scheduling + deploy (via Hermes)
 **Delivers:** Goal 10 + production operation.
-- `src/cvflow/scheduler/` — APScheduler daily trigger + heartbeat; daemon entrypoint wiring all modules end-to-end; systemd unit (dedicated unprivileged user, auto-restart, xvfb).
-**Exit:** daemon boots, schedules discovery, sends heartbeat; systemd unit documented in `docs/deploy.md`.
+- Configure Hermes's scheduler for the daily discovery trigger + heartbeat (no hand-built daemon/APScheduler). systemd unit running Hermes as a dedicated unprivileged user (auto-restart, xvfb).
+**Exit:** Hermes runs the daily schedule, sends a heartbeat to Telegram; systemd unit documented in `docs/deploy.md`.
 
 ### [ ] Phase 12 — End-to-end dry run
 **Delivers:** confidence.
@@ -127,18 +130,18 @@ Domain phases (1–5) are **independent of the orchestration-substrate decision*
 - **Playwright** (persistent context) over Selenium: session reuse, auto-wait, WebSocket.
 - **SQLite** tracking + **JSON** form-fields + **markdown** KB.
 - **Modular LaTeX** + TeX Live over regex-on-monolith: deterministic reorder & meaningful diff.
-- **Gemini free tier primary, NVIDIA NIM free tier secondary**, behind a provider-agnostic `llm/` wrapper (quality→Gemini, bulk/triage→NIM, fallback on rate-limit).
+- **Orchestration substrate = Hermes Agent** (DECIDED): less glue code, lower trust surface than OpenClaw, built for messaging + autonomous multi-step + browser + BYO-LLM. cvflow = deterministic skills Hermes calls.
+- **LLM (DECIDED):** brain = `nvidia/llama-3.3-nemotron-super-49b-v1` (NIM free tier, tool-calling tuned, ~40 RPM / no hard daily cap — fits an agent's many calls), configured in Hermes. Resume tailoring escalates to **Gemini 2.5 Flash** (low volume → under RPD, higher quality).
 - **Codex-via-ChatGPT-Go: rejected** — Go lacks the full Codex agent; subscription-OAuth as a headless backend violates OpenAI ToS; Codex moved to token billing. Do not reintroduce.
 - **Approval gate as a state machine**, not a convention.
 
 ## Open decisions / risks (must resolve where noted)
 
-- **Orchestration substrate (Phase 7):** standalone daemon vs Hermes/NanoClaw/TrustClaw/OpenClaw. Default fallback = standalone. Decide before Phase 8.
-- **LLM PII privacy:** both free tiers may train on submitted data. Options: informed consent / PII redaction / **local model** (needs server GPU/VRAM specs — get from user) / paid key (breaks zero-cost). Resolve before loading real PII (latest: before Phase 4 uses real profile data).
+- **LLM PII privacy (still open):** both free tiers (NIM + Gemini) may train on submitted data, including the user's PII. Options: informed consent / PII redaction / local model (needs server GPU/VRAM specs) / paid key (breaks zero-cost). Resolve before loading real profile data into live calls (Phase 4+).
 - **Anti-bot / ToS:** LinkedIn/Indeed/Glassdoor resist scraping & auto-apply; expect breakage and treat platform accounts as expendable. JobSpy endpoints drift.
 - **Token/cookie theft & PII exposure:** mitigate with burner Google account, unprivileged user, Fernet at rest, chmod 600, host firewall.
 - **Browser session preservation** on pause is best-effort; on form timeout → log + notify.
 
 ## Progress log
 
-- 2026-06-03: Repo initialized, project scaffolded, stack & decisions recorded. Build plan written. **Next: Phase 0.**
+- 2026-06-03: Repo initialized, project scaffolded, stack & decisions recorded. Build plan written. Profile + master resume populated. **Substrate locked = Hermes; brain = NIM Nemotron Super 49B; tailoring = Gemini 2.5 Flash.** **Next: Phase 0.**
