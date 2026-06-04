@@ -75,7 +75,7 @@ Install Hermes (single-curl) and run it as a dedicated unprivileged user under a
 - **Layout:** package `cvflow` under `src/`; one concern per subpackage (table above). Prefer small, focused files.
 - **TDD:** failing test → watch it fail → minimal implementation → watch it pass → commit. Frequent small commits.
 - **Commits:** Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`…). Git identity comes from **global** git config — never set repo-local user/email.
-- **Secrets/PII:** only `*.example.*` templates committed (see invariant 5).
+- **Secrets/PII:** private single-user repo — real `profile/` + `resume/*.tex` PII is committed directly (invariant 5). No `*.example` data templates; the only committed example is `config.example.yaml` (secrets-free config skeleton, since `config.yaml` is gitignored).
 
 ---
 

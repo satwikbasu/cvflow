@@ -4,7 +4,7 @@ These markdown files are cvflow's **only** source of facts about you. They are l
 
 **cvflow must never invent, infer, or embellish facts beyond what is written here.** If a required answer isn't present, it triggers the mid-form clarification loop (asks you in Telegram) instead of guessing.
 
-Copy each `*.example.md` to its real name (drop `.example`) and fill it in with your real information. Real files are **gitignored** — only the `*.example.*` templates are committed.
+This is a **private, single-user repo**, so these files hold real data and are **committed directly** (PII, but no secrets — secrets live only in the gitignored `config.yaml`). Edit them in place; there are no `*.example` templates.
 
 | File | Holds |
 |---|---|
@@ -14,4 +14,4 @@ Copy each `*.example.md` to its real name (drop `.example`) and fill it in with 
 | `education.md` | degrees, institutions, dates |
 | `personality.md` | work style, values, culture-fit signals |
 | `essay_answers.md` | pre-written answers to common application essays, in your voice |
-| `form_fields.json` | structured recurring form values (see `form_fields.example.json`) |
+| `form_fields.json` | structured recurring form values (empty value = known field, ask the user — never guess) |

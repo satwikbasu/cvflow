@@ -121,7 +121,7 @@ def test_set_tailored_pdf_and_confirmation() -> None:
 
 # --- form fields loader ---
 
-EXAMPLE = Path("profile/form_fields.example.json")
+FORM_FIELDS = Path("profile/form_fields.json")
 
 
 def test_form_fields_loads_and_splits_populated_vs_missing(tmp_path: Path) -> None:
@@ -148,8 +148,8 @@ def test_form_fields_require_raises_on_empty_and_unknown(tmp_path: Path) -> None
         ff.require("unknown_key")
 
 
-def test_form_fields_loads_committed_example_template() -> None:
-    if not EXAMPLE.exists():
-        pytest.skip("example template not present")
-    ff = FormFields.load(EXAMPLE)
+def test_form_fields_loads_committed_form_fields() -> None:
+    if not FORM_FIELDS.exists():
+        pytest.skip("committed form_fields.json not present")
+    ff = FormFields.load(FORM_FIELDS)
     assert "_comment" not in ff.values

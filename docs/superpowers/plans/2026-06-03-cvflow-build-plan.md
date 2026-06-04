@@ -71,7 +71,7 @@ Domain phases (1–5) are **independent of the orchestration-substrate decision*
 ### [x] Phase 3 — Knowledge-base loader
 **Delivers:** profile ingestion.
 - Loader that reads all `profile/*.md` **and `profile/projects/*.md`** (recurse) plus `form_fields.json` into a structured context object loaded in full for downstream prompts.
-**Exit:** tests load the `*.example.md` templates and expose experience/skills/essays/form-fields; missing-field detection returns a pending list (no guessing).
+**Exit:** tests load the real committed `profile/` and expose experience/skills/essays/form-fields; missing-field detection returns a pending list (no guessing). *(Private single-user repo: real data committed directly; the `*.example` data templates were removed 2026-06-04 — the loader still defensively skips any `*.example.md`.)*
 
 ### [x] Phase 4 — Discovery
 **Delivers:** Goal 1.

@@ -1,6 +1,5 @@
 """Tests for the knowledge-base loader (Phase 3)."""
 
-import shutil
 from pathlib import Path
 
 import pytest
@@ -75,17 +74,12 @@ def test_missing_doc_accessor_raises(tmp_path: Path) -> None:
         _ = kb.experience
 
 
-def test_loads_committed_example_templates(tmp_path: Path) -> None:
+def test_loads_real_committed_profile() -> None:
+    """The real, committed profile/ (single-user private repo) loads end-to-end."""
     src = Path("profile")
-    if not (src / "skills.example.md").exists():
-        pytest.skip("example templates not present")
-    prof = tmp_path / "profile"
-    (prof / "projects").mkdir(parents=True)
-    # Copy each *.example.md to its real name so the loader ingests it.
-    for ex in src.glob("*.example.md"):
-        shutil.copy(ex, prof / ex.name.replace(".example", ""))
-    (prof / "form_fields.json").write_text((src / "form_fields.example.json").read_text())
-    kb = KnowledgeBase.load(prof)
+    if not (src / "skills.md").exists():
+        pytest.skip("committed profile not present")
+    kb = KnowledgeBase.load(src)
     assert kb.skills
     assert kb.experience
     assert kb.essays
