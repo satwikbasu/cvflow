@@ -64,10 +64,35 @@ def _store_with_job():
     return store
 
 
-def test_request_review_moves_to_pending_review():
+def test_request_review_moves_to_pending_review(tmp_path):
+    from cvflow.analysis import JDAnalysis
+
+    class _FakeTailor:
+        def plan(self, jd, *, feedback=None):
+            return "PLAN"
+
+        def diff(self, plan):
+            return "diff"
+
+        def compile_tailored(self, plan, outdir):
+            from pathlib import Path
+
+            p = Path(outdir) / "_tailored.pdf"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(b"%PDF-1.5")
+            return p
+
     store = _store_with_job()
+    store.save_analysis(
+        "indeed:9",
+        JDAnalysis(
+            required_skills=["python"], preferred_quals=[], seniority="mid",
+            tone="neutral", applicant_instructions=[],
+        ),
+    )
     tools = CvflowTools(
-        store=store, knowledge=None, discovery=None, analyzer=None, tailor=None
+        store=store, knowledge=None, discovery=None, analyzer=None,
+        tailor=_FakeTailor(), output_dir=str(tmp_path),
     )
     tools.request_review("indeed:9")
     assert store.get("indeed:9").status == Status.PENDING_REVIEW
@@ -78,7 +103,7 @@ def test_submit_blocks_when_not_approved():
     tools = CvflowTools(
         store=store, knowledge=None, discovery=None, analyzer=None, tailor=None
     )
-    tools.request_review("indeed:9")
+    store.set_status("indeed:9", Status.PENDING_REVIEW)
     with pytest.raises(SubmissionBlocked):
         tools.submit("indeed:9")
 
@@ -97,7 +122,7 @@ def test_submit_succeeds_only_after_out_of_band_approval():
     tools = CvflowTools(
         store=store, knowledge=None, discovery=None, analyzer=None, tailor=None
     )
-    tools.request_review("indeed:9")
+    store.set_status("indeed:9", Status.PENDING_REVIEW)
     store.approve("indeed:9")
     result = tools.submit("indeed:9")
     assert result["job_id"] == "indeed:9"

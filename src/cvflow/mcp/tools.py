@@ -28,6 +28,8 @@ TOOL_NAMES: tuple[str, ...] = (
     "get_application",
     "request_review",
     "submit",
+    "compose_essay",
+    "status_report",
 )
 
 
@@ -42,12 +44,16 @@ class CvflowTools:
         discovery: Any,
         analyzer: Any,
         tailor: Any,
+        output_dir: str = "data/tailored",
+        essay_provider: Any = None,
     ) -> None:
         self._store = store
         self._knowledge = knowledge
         self._discovery = discovery
         self._analyzer = analyzer
         self._tailor = tailor
+        self._output_dir = output_dir
+        self._essay_provider = essay_provider
 
     # ------------------------------------------------------------------
     # Health
@@ -83,10 +89,50 @@ class CvflowTools:
     # Workflow skills
     # ------------------------------------------------------------------
 
-    def request_review(self, job_id: str) -> dict[str, Any]:
-        """Transition a job from DISCOVERED → PENDING_REVIEW."""
-        self._store.set_status(job_id, Status.PENDING_REVIEW)
-        return self._app_to_dict(self._store.get(job_id))
+    def request_review(self, job_id: str, *, feedback: str | None = None) -> dict[str, Any]:
+        """Move to PENDING_REVIEW, tailor + compile the PDF, return the review payload.
+
+        Prepares the review; it never approves. Approval is the human /approve
+        command handled out-of-band by cvflow.gate.
+        """
+        app = self._store.get(job_id)
+        if app is None:
+            raise UnknownJob(job_id)
+        if app.status is Status.DISCOVERED:
+            self._store.set_status(job_id, Status.PENDING_REVIEW)
+        analysis = self._store.get_analysis(job_id)
+        if analysis is None:
+            raise UnknownJob(f"no JD analysis for {job_id}; run analyze_jd first")
+        plan = self._tailor.plan(analysis, feedback=feedback)
+        pdf = self._tailor.compile_tailored(plan, self._output_dir)
+        self._store.set_tailored_pdf(job_id, str(pdf))
+        return {
+            "job_id": job_id,
+            "status": Status.PENDING_REVIEW.value,
+            "pdf_path": str(pdf),
+            "diff": self._tailor.diff(plan),
+            "analysis_summary": json.loads(analysis.to_json()),
+            "instructions": (
+                f"Reply /approve {job_id} to approve & apply, or /skip {job_id} to skip."
+            ),
+        }
+
+    def compose_essay(self, question: str) -> dict[str, Any]:
+        """Compose a grounded answer; flag clarification instead of guessing."""
+        from cvflow.essays import compose_answer
+
+        ans = compose_answer(question, self._knowledge, provider=self._essay_provider)
+        return {
+            "text": ans.text,
+            "grounded": ans.grounded,
+            "citations": ans.citations,
+            "needs_clarification": ans.needs_clarification,
+            "clarification": ans.clarification,
+        }
+
+    def status_report(self) -> dict[str, int]:
+        """Return a count of applications per status."""
+        return {s.value: len(self._store.list_by_status(s)) for s in Status}
 
     def submit(self, job_id: str) -> dict[str, Any]:
         """Attempt to submit.  Raises SubmissionBlocked unless status is APPROVED.
@@ -140,7 +186,11 @@ class CvflowTools:
 
 def build_tools(config: Any) -> CvflowTools:
     """Wire up a :class:`CvflowTools` from a loaded :class:`cvflow.config.Config`."""
+    from pathlib import Path
+
     from cvflow.knowledge import KnowledgeBase
+    from cvflow.llm import GeminiProvider
+    from cvflow.resume import ResumeTailor, parse_master
     from cvflow.storage import ApplicationStore
 
     store = ApplicationStore(config.storage.db_path)
@@ -148,10 +198,23 @@ def build_tools(config: Any) -> CvflowTools:
         config.profile.knowledge_base_dir,
         config.storage.form_fields_path,
     )
+    tailoring = GeminiProvider(
+        api_key=config.llm.tailoring.api_key,
+        model=config.llm.tailoring.model,
+        max_requests_per_day=config.llm.tailoring.max_requests_per_day,
+    )
+    # master_tex_path points at the master.tex FILE; parse_master wants its dir root.
+    master_root = Path(config.resume.master_tex_path).parent
+    tailor = ResumeTailor(tailoring, parse_master(master_root))
+    # analyzer + discovery run on the NIM brain (configured in Hermes, no in-code
+    # provider class yet), so they are left unwired here. This phase's skills
+    # (request_review, compose_essay, status_report) need only the above.
     return CvflowTools(
         store=store,
         knowledge=knowledge,
         discovery=None,
         analyzer=None,
-        tailor=None,
+        tailor=tailor,
+        output_dir=config.resume.output_dir,
+        essay_provider=tailoring,
     )
