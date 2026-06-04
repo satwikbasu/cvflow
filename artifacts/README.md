@@ -19,6 +19,8 @@ system is recoverable beyond a plain `git clone`.
 | `hermes-env.template` | Every variable **name** from `~/.hermes/.env` with **values stripped**. The shape of the secret set to fill on a new box. | None — names only, all values blank. |
 | `hermes-gateway.service` | The systemd unit running the gateway (`/etc/systemd/system/hermes-gateway.service`). Auto-restart, runs as `ubuntu`. | None. |
 | `SOUL.md` | Hermes agent persona/identity file. | None. |
+| `hooks/cvflow-gate/` | The **approval-gate hook** (`HOOK.yaml` + `handler.py`). Fires on `command:approve` / `command:skip`, routes to `cvflow.gate.handle_gate_command` (the sole `approve()` caller) OUTSIDE the agent loop, returns `decision:"handled"`. A bare `/approve` (no job_id) falls through to Hermes' built-in confirm flow. | None — imports cvflow + reads the host's gitignored `config.yaml` at runtime. |
+| `plugins/cvflow-gate/` | Plugin (`plugin.yaml` + `__init__.py`) registering `/skip` so it becomes a known command (the hook then fires). `/approve` is already a Hermes built-in, so the plugin's attempt to register it is skipped by design. Enabled via `plugins.enabled: [cvflow-gate]` in the config. | None. |
 
 ## Restoring on a new instance
 
@@ -42,13 +44,23 @@ system is recoverable beyond a plain `git clone`.
    ```
    Adjust absolute paths in `hermes-config.yaml` (`mcp_servers.cvflow.command`/`cwd`)
    if the repo lives somewhere other than `/home/ubuntu/cvflow`.
-5. **Install the gateway service:**
+5. **Install the approval-gate hook + plugin:**
+   ```bash
+   cp -r artifacts/hermes/hooks/cvflow-gate   ~/.hermes/hooks/cvflow-gate
+   cp -r artifacts/hermes/plugins/cvflow-gate ~/.hermes/plugins/cvflow-gate
+   # config already enables it (plugins.enabled: [cvflow-gate]). If the repo
+   # is NOT at ~/cvflow, set CVFLOW_ROOT=/path/to/cvflow in ~/.hermes/.env
+   # (the hook reads it; default is ~/cvflow).
+   ```
+6. **Install the gateway service:**
    ```bash
    sudo cp artifacts/hermes/hermes-gateway.service /etc/systemd/system/
    sudo systemctl daemon-reload && sudo systemctl enable --now hermes-gateway
    ```
-6. **Verify:** `hermes mcp test cvflow` → 7 tools; send `mcp_cvflow_ping` from the
-   authorized Telegram chat → `{"status":"ok","service":"cvflow"}`.
+7. **Verify:** `hermes mcp test cvflow` → 9 tools, no `approve`; gateway log shows
+   `Loaded hook 'cvflow-gate'`; send `mcp_cvflow_ping` from the authorized Telegram
+   chat → `{"status":"ok","service":"cvflow"}`. Then `/approve <job_id>` on a
+   pending-review job → `✅ Approved …` and status flips to `approved`.
 
 ## Deliberately NOT tracked (secrets / runtime state)
 

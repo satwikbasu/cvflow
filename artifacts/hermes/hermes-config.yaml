@@ -618,3 +618,9 @@ known_plugin_toolsets:
     - spotify
   telegram:
     - spotify
+
+# cvflow approval-gate plugin (registers /skip; /approve is built-in). The
+# cvflow-gate HOOK intercepts command:approve/command:skip deterministically.
+plugins:
+  enabled:
+    - cvflow-gate
