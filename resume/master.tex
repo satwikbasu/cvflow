@@ -25,7 +25,12 @@
 \usepackage{fancyhdr}
 \usepackage[english]{babel}
 \usepackage{tabularx}
-\input{glyphtounicode}
+% glyphtounicode + \pdfgentounicode are pdfTeX-only primitives. Guard them so the
+% template also compiles under XeTeX/LuaTeX (Tectonic uses XeTeX, which is already
+% Unicode-native, so the produced PDF stays ATS/AI-parsable without them).
+\ifdefined\pdfgentounicode
+  \input{glyphtounicode}
+\fi
 
 \pagestyle{fancy}
 \fancyhf{}
@@ -51,8 +56,10 @@
   \vspace{-4pt}\scshape\raggedright\large
 }{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]
 
-% Ensure that generated pdf is machine readable / ATS parsable
-\pdfgentounicode=1
+% Ensure that generated pdf is machine readable / ATS parsable (pdfTeX only)
+\ifdefined\pdfgentounicode
+  \pdfgentounicode=1
+\fi
 
 %-------------------------
 % Custom commands
