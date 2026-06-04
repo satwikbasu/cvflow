@@ -67,7 +67,7 @@ def test_request_review_returns_pdf_diff_analysis(tmp_path):
     assert out["pdf_path"].endswith("_tailored.pdf")
     assert "Section order" in out["diff"]
     assert out["analysis_summary"]["required_skills"] == ["python"]
-    assert "/approve j1" in out["instructions"]
+    assert "/apply j1" in out["instructions"]
     assert store.get("j1").tailored_pdf_path == out["pdf_path"]
 
 

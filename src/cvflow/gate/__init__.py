@@ -1,10 +1,13 @@
 """Deterministic gate command handler — the human-approval path, off the agent loop.
 
 This module is the SOLE caller of ``ApplicationStore.approve`` in production code.
-A Hermes ``command:approve`` / ``command:skip`` hook invokes
+A Hermes ``command:apply`` / ``command:skip`` hook invokes
 :func:`handle_gate_command` with the inbound Telegram user id and args. The
 agent/brain has no approve tool and cannot inject an inbound slash command, so it
 can never reach this code path (CLAUDE.md invariant 1).
+
+The user-facing command is ``/apply <job_id>`` (deliberately NOT ``/approve``,
+which is a Hermes built-in — keeping a distinct verb avoids any collision).
 """
 
 from __future__ import annotations
@@ -49,7 +52,7 @@ def handle_gate_command(
     if not job_id:
         return GateResult(handled=True, message=f"⚠️ Usage: /{command} <job_id>")
 
-    if command == "approve":
+    if command == "apply":
         try:
             store.approve(job_id)
         except UnknownJob:

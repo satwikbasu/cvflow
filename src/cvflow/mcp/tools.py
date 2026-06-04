@@ -113,7 +113,7 @@ class CvflowTools:
             "diff": self._tailor.diff(plan),
             "analysis_summary": json.loads(analysis.to_json()),
             "instructions": (
-                f"Reply /approve {job_id} to approve & apply, or /skip {job_id} to skip."
+                f"Reply /apply {job_id} to approve & apply, or /skip {job_id} to skip."
             ),
         }
 

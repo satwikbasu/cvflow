@@ -1,5 +1,5 @@
 name: cvflow-gate
-description: Deterministic human approval gate for cvflow (/approve, /skip).
+description: Deterministic human approval gate for cvflow (/apply, /skip).
 events:
-  - command:approve
+  - command:apply
   - command:skip

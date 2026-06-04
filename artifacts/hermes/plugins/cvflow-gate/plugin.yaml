@@ -1,5 +1,5 @@
 name: cvflow-gate
 version: 1.0.0
-description: "Registers cvflow's approval-gate slash commands so the gateway treats them as known commands. /approve is already a built-in gateway command; this plugin adds /skip. The cvflow-gate HOOK intercepts both (command:approve, command:skip) and runs the deterministic gate before the brain."
+description: "Registers cvflow's approval-gate slash commands (/apply, /skip) so the gateway treats them as known commands. /apply is used instead of /approve to avoid the built-in /approve. The cvflow-gate HOOK intercepts both (command:apply, command:skip) and runs the deterministic gate before the brain."
 author: "cvflow"
 kind: standalone

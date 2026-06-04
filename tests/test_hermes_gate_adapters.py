@@ -22,26 +22,27 @@ def _pending_store():
     return store
 
 
-def test_hook_dispatches_approve_to_pure_handler(monkeypatch):
+def test_hook_dispatches_apply_to_pure_handler(monkeypatch):
     store = _pending_store()
     mod = _load(HOOK)
     monkeypatch.setattr(mod, "_build_store", lambda: store)
     monkeypatch.setattr(mod, "_authorized_user_id", lambda: 1291545895)
-    result = asyncio.run(mod.handle("command:approve",
-        {"command": "approve", "args": "j1", "user_id": 1291545895}))
+    result = asyncio.run(mod.handle("command:apply",
+        {"command": "apply", "args": "j1", "user_id": 1291545895}))
     assert result["decision"] == "handled"
     assert "Approved" in result["message"]
     assert store.get("j1").status is Status.APPROVED
 
 
-def test_bare_approve_falls_through_to_builtin(monkeypatch):
+def test_bare_apply_shows_usage_no_state_change(monkeypatch):
     store = _pending_store()
     mod = _load(HOOK)
     monkeypatch.setattr(mod, "_build_store", lambda: store)
     monkeypatch.setattr(mod, "_authorized_user_id", lambda: 1291545895)
-    result = asyncio.run(mod.handle("command:approve",
-        {"command": "approve", "args": "", "user_id": 1291545895}))
-    assert result == {}
+    result = asyncio.run(mod.handle("command:apply",
+        {"command": "apply", "args": "", "user_id": 1291545895}))
+    assert result["decision"] == "handled"
+    assert "Usage" in result["message"] and "/apply" in result["message"]
     assert store.get("j1").status is Status.PENDING_REVIEW
 
 
@@ -50,7 +51,7 @@ def test_hook_ignores_unauthorized(monkeypatch):
     mod = _load(HOOK)
     monkeypatch.setattr(mod, "_build_store", lambda: store)
     monkeypatch.setattr(mod, "_authorized_user_id", lambda: 1291545895)
-    result = asyncio.run(mod.handle("command:approve",
-        {"command": "approve", "args": "j1", "user_id": 999}))
+    result = asyncio.run(mod.handle("command:apply",
+        {"command": "apply", "args": "j1", "user_id": 999}))
     assert result == {}
     assert store.get("j1").status is Status.PENDING_REVIEW

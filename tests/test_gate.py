@@ -15,7 +15,7 @@ def _store_with(status: Status) -> ApplicationStore:
 
 def test_approve_from_pending_is_only_route_to_approved():
     store = _store_with(Status.PENDING_REVIEW)
-    res = handle_gate_command(command="approve", args="j1", user_id=USER,
+    res = handle_gate_command(command="apply", args="j1", user_id=USER,
                               authorized_user_id=USER, store=store)
     assert isinstance(res, GateResult)
     assert res.handled is True
@@ -25,7 +25,7 @@ def test_approve_from_pending_is_only_route_to_approved():
 
 def test_approve_wrong_state_is_reported_not_silent_and_no_change():
     store = _store_with(Status.DISCOVERED)
-    res = handle_gate_command(command="approve", args="j1", user_id=USER,
+    res = handle_gate_command(command="apply", args="j1", user_id=USER,
                               authorized_user_id=USER, store=store)
     assert res.handled is True
     assert res.message and "can't approve" in res.message.lower()
@@ -34,7 +34,7 @@ def test_approve_wrong_state_is_reported_not_silent_and_no_change():
 
 def test_approve_unknown_job_reported():
     store = ApplicationStore(":memory:")
-    res = handle_gate_command(command="approve", args="nope", user_id=USER,
+    res = handle_gate_command(command="apply", args="nope", user_id=USER,
                               authorized_user_id=USER, store=store)
     assert res.handled is True
     assert "no application" in res.message.lower()
@@ -50,7 +50,7 @@ def test_skip_transitions_and_reports():
 
 def test_unauthorized_user_is_silently_ignored_no_state_change():
     store = _store_with(Status.PENDING_REVIEW)
-    res = handle_gate_command(command="approve", args="j1", user_id=999,
+    res = handle_gate_command(command="apply", args="j1", user_id=999,
                               authorized_user_id=USER, store=store)
     assert res.handled is False
     assert res.message is None
@@ -59,7 +59,7 @@ def test_unauthorized_user_is_silently_ignored_no_state_change():
 
 def test_user_id_compared_as_string_or_int():
     store = _store_with(Status.PENDING_REVIEW)
-    res = handle_gate_command(command="approve", args="j1", user_id="1291545895",
+    res = handle_gate_command(command="apply", args="j1", user_id="1291545895",
                               authorized_user_id=USER, store=store)
     assert res.handled is True
     assert store.get("j1").status is Status.APPROVED

@@ -1,9 +1,12 @@
-"""Hermes command hook: routes /approve and /skip to cvflow's deterministic gate.
+"""Hermes command hook: routes /apply and /skip to cvflow's deterministic gate.
 
 Runs in the gateway process, OUTSIDE the agent loop. Returns a Hermes
 {"decision": "handled", "message": ...} dict so the reply is sent and the brain
 never processes the command. Unauthorized users -> {} (fall through). This is
 the human-approval path; the LLM agent has no approve tool and cannot reach it.
+
+The command verb is ``/apply`` (not ``/approve``, which is a Hermes built-in) so
+there is no collision and no fragile bare-command special-casing.
 """
 
 from __future__ import annotations
@@ -44,17 +47,9 @@ async def handle(event_type: str, context: dict[str, Any]) -> dict[str, Any]:
     _ensure_import()
     from cvflow.gate import handle_gate_command
 
-    command = str(context.get("command", ""))
-    args = str(context.get("args", "")).strip()
-    # /approve is also a Hermes built-in (tool-confirm). A bare /approve (no
-    # job_id) belongs to that built-in flow — fall through so we don't hijack it.
-    # Only /approve <job_id> is the cvflow gate.
-    if command == "approve" and not args:
-        return {}
-
     res = handle_gate_command(
-        command=command,
-        args=args,
+        command=str(context.get("command", "")),
+        args=str(context.get("args", "")),
         user_id=context.get("user_id"),
         authorized_user_id=_authorized_user_id(),
         store=_build_store(),
