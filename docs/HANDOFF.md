@@ -3,17 +3,17 @@
 Paste the prompt below into a fresh Claude Code session started inside this cloned repo.
 
 ## Before you start (human, on the OTHER machine)
-1. **⚠️ Pull first — this machine is behind.** The last session (on the other system) added Phases 0–4
+1. **⚠️ Pull first — this machine is behind.** The last session (on the other system) added Phases 0–5
    plus docs and pushed them. Run `git pull` before anything so you have all commits, the updated build
    plan, the new sub-plans, and this handoff. Verify with `git log --oneline -8` (newest should be the
-   `docs:` hosting/Tectonic commits, then `feat(discovery)…`).
+   `feat(analysis)…` Phase-5 commit).
 2. **Secrets** (kept out of git on purpose): ensure `config.yaml` exists here — copy from
    `config.example.yaml` and fill the four secret values: `telegram.bot_token`,
    `telegram.authorized_user_id`, `llm.brain.api_key` (NVIDIA NIM `nvapi-...`),
    `llm.tailoring.api_key` (Gemini `AIza...`). All non-secret values in the example are already correct.
    (Your keys are in the earlier exported transcript on the original machine.) `chmod 600 config.yaml`.
 3. **Python env:** `python3.11 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"`
-   (pyproject now drives deps/tooling). Sanity check: `pytest -q` → **52 passing**; `ruff check .` and
+   (pyproject now drives deps/tooling). Sanity check: `pytest -q` → **60 passing**; `ruff check .` and
    `mypy src` → clean.
 4. **Git push access:** pushes via SSH alias `github-personal` (key `~/.ssh/id_ed25519_satwikbasu`). On a new
    machine, set up your GitHub SSH key and recreate that alias in `~/.ssh/config`, or
@@ -30,7 +30,7 @@ Paste the prompt below into a fresh Claude Code session started inside this clon
 > of truth for architecture, invariants, and the phase roadmap. The per-phase TDD sub-plans live alongside it
 > in `docs/superpowers/plans/`.
 >
-> **Completed and committed (Phases 0–4):**
+> **Completed and committed (Phases 0–5):**
 > - **Phase 0 — Foundations:** `pyproject.toml` (pinned deps + pytest/ruff/mypy-strict), `src/cvflow/config.py`
 >   (typed/validated frozen `Config`, `ConfigError`, api-key stripping, HH:MM validation), `logging_setup.py`
 >   (rotating, idempotent).
@@ -47,8 +47,16 @@ Paste the prompt below into a fresh Claude Code session started inside this clon
 >   the store, throttle, persist presented jobs as `discovered`). **Job source is behind an injectable
 >   `search_fn` seam; JobSpy is the zero-cost default** (fantastic.jobs/SerpApi rejected as primary — hosted-SaaS/
 >   metered or free tier too small; the seam lets one slot in later).
+> - **Phase 5 — JD Analysis (Goal 2):** `analysis/` — `JDAnalysis` dataclass (`to_json`/`from_json`);
+>   `fetch_jd()` behind an injectable `fetch_fn` (default stdlib `urllib`) with a stdlib `html.parser`
+>   HTML→text step that drops `script`/`style`/`head` (no new deps), `JDFetchError` on empty body;
+>   `JDAnalyzer.analyze()` LLM-extracts required_skills / preferred_quals / seniority / tone /
+>   **applicant_instructions** via the same `generate(prompt)->str` provider seam as discovery, strips
+>   code fences, `JDAnalysisError` on unparseable replies, never-invent prompt. Persistence: **additive**
+>   `jd_analyses` table on `ApplicationStore` (`save_analysis`/`get_analysis`, FK `job_id`) — the
+>   gate/transition core is untouched.
 >
-> **Health:** `pytest` → 52 passing; `ruff` + `mypy --strict` clean. Each phase has a TDD sub-plan; the master
+> **Health:** `pytest` → 60 passing; `ruff` + `mypy --strict` clean. Each phase has a TDD sub-plan; the master
 > plan's checkboxes + progress log are in sync.
 >
 > **Decisions locked:** substrate = **Hermes Agent**; brain = `meta/llama-3.3-70b-instruct` (NIM free tier);
@@ -58,25 +66,35 @@ Paste the prompt below into a fresh Claude Code session started inside this clon
 > `docs/hosting-aws-ec2.md`). **LaTeX:** use **Tectonic** (tiny, local, private), not `texlive-full` or a hosted
 > LaTeX API — set `resume.latex_compiler: "tectonic"` when Phase 6 wires the compile call.
 >
-> **Next task: execute Phase 5 (JD Analysis, Goal 2).** First write the bite-sized TDD sub-plan at
-> `docs/superpowers/plans/<today>-phase-5-jd-analysis.md` (use the `superpowers:writing-plans` skill), then
-> implement it test-first in `src/cvflow/analysis/`: fetch the full JD, LLM-extract required skills, preferred
-> quals, seniority, tone/culture, and **applicant-specific instructions** (e.g. "include the word pineapple");
-> persist the analysis linked to the application record. Keep the LLM call behind an injectable provider so
-> tests stay fully mocked (no live API). Exit: tests on sample JDs extract the structured fields and capture an
-> embedded applicant instruction.
+> **Next task: execute Phase 6 (Resume Tailoring, Goal 3 + the diff for Goal 4).** First write the bite-sized
+> TDD sub-plan at `docs/superpowers/plans/<today>-phase-6-resume-tailoring.md` (use the
+> `superpowers:writing-plans` skill), then implement it test-first in `src/cvflow/resume/`: operate on a
+> modular master, reorder/emphasize sections & bullets per JD **without adding facts** (assert against the
+> KB — invariant 2), compile to PDF, and generate a plain-language diff vs master (section reorder + bullet
+> changes + promoted/demoted skills) for the approval gate. Consume the Phase-5 `JDAnalysis` and the Phase-3
+> `KnowledgeBase`; keep the LLM call behind the same injectable provider seam so tests stay fully mocked.
+>
+> **⚠️ Phase 6 prep (two blockers found this session):**
+> 1. **`resume/master.tex` is currently a monolith** — there is no `sections/*.tex`. The plan assumes a
+>    modular master for deterministic reorder + meaningful diff. Decide first: split `master.tex` into
+>    `resume/sections/*.tex` with `\input{}` includes (recommended, enables the diff), or change the approach.
+> 2. **No LaTeX engine installed** — neither `tectonic` nor `latexmk` is on PATH. Per the locked decision,
+>    install **Tectonic** and set `resume.latex_compiler: "tectonic"`. Keep the compile call behind an
+>    injectable seam so the structural/diff tests run without a TeX engine; gate the actual compile→PDF test
+>    behind a `tectonic`-available check (skip if absent) so CI/dev without TeX still goes green.
 >
 > Follow the standing rules (TDD; deterministic gate; never fabricate user facts; never fail silently; respect
 > free-tier limits; secrets never in git; profile PII intentionally committed). **Commit with Conventional
-> Commits and NO Co-Authored-By trailer.** Continue into Phase 6 (Resume Tailoring) if time permits, then
-> **update this `docs/HANDOFF.md` and push to remote at the end of the session.**
+> Commits and NO Co-Authored-By trailer.** Then **update this `docs/HANDOFF.md` and push to remote at the end
+> of the session.**
 
 ---
 
 ## Quick orientation for the new session
 - **What/why/architecture:** `CLAUDE.md`
 - **Roadmap + locked decisions + open risks:** `docs/superpowers/plans/2026-06-03-cvflow-build-plan.md`
-- **Per-phase TDD sub-plans:** `docs/superpowers/plans/2026-06-03-phase-{0,1,2,3,4}-*.md`
+- **Per-phase TDD sub-plans:** `docs/superpowers/plans/2026-06-03-phase-{0,1,2,3,4}-*.md`,
+  `docs/superpowers/plans/2026-06-04-phase-5-jd-analysis.md`
 - **Hosting/deploy strategy + EC2 runbook + Tectonic:** `docs/hosting-aws-ec2.md`
 - **OPEN RISK — LLM PII privacy:** ranking (Phase 4) and analysis/tailoring (5/6) send profile PII to the
   free-tier LLMs, which may train on it. Tests are mocked; resolve consent/redaction before any **live** run.
