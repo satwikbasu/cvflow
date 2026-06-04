@@ -34,6 +34,17 @@ def test_hook_dispatches_approve_to_pure_handler(monkeypatch):
     assert store.get("j1").status is Status.APPROVED
 
 
+def test_bare_approve_falls_through_to_builtin(monkeypatch):
+    store = _pending_store()
+    mod = _load(HOOK)
+    monkeypatch.setattr(mod, "_build_store", lambda: store)
+    monkeypatch.setattr(mod, "_authorized_user_id", lambda: 1291545895)
+    result = asyncio.run(mod.handle("command:approve",
+        {"command": "approve", "args": "", "user_id": 1291545895}))
+    assert result == {}
+    assert store.get("j1").status is Status.PENDING_REVIEW
+
+
 def test_hook_ignores_unauthorized(monkeypatch):
     store = _pending_store()
     mod = _load(HOOK)

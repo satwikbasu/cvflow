@@ -44,9 +44,17 @@ async def handle(event_type: str, context: dict[str, Any]) -> dict[str, Any]:
     _ensure_import()
     from cvflow.gate import handle_gate_command
 
+    command = str(context.get("command", ""))
+    args = str(context.get("args", "")).strip()
+    # /approve is also a Hermes built-in (tool-confirm). A bare /approve (no
+    # job_id) belongs to that built-in flow — fall through so we don't hijack it.
+    # Only /approve <job_id> is the cvflow gate.
+    if command == "approve" and not args:
+        return {}
+
     res = handle_gate_command(
-        command=str(context.get("command", "")),
-        args=str(context.get("args", "")),
+        command=command,
+        args=args,
         user_id=context.get("user_id"),
         authorized_user_id=_authorized_user_id(),
         store=_build_store(),
