@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from cvflow.analysis import JDAnalysis
 from cvflow.statemachine import Status, approve, transition
 
 __all__ = [
@@ -70,6 +71,10 @@ CREATE TABLE IF NOT EXISTS applications (
     tailored_pdf_path TEXT,
     confirmation_ref  TEXT
 );
+CREATE TABLE IF NOT EXISTS jd_analyses (
+    job_id    TEXT PRIMARY KEY REFERENCES applications(job_id),
+    analysis  TEXT NOT NULL
+);
 """
 
 
@@ -81,7 +86,7 @@ class ApplicationStore:
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(db_path))
         self._conn.row_factory = sqlite3.Row
-        self._conn.execute(_SCHEMA)
+        self._conn.executescript(_SCHEMA)
         self._conn.commit()
 
     def _row_to_app(self, row: sqlite3.Row) -> Application:
@@ -169,6 +174,22 @@ class ApplicationStore:
             "UPDATE applications SET confirmation_ref = ? WHERE job_id = ?", (ref, job_id)
         )
         self._conn.commit()
+
+    def save_analysis(self, job_id: str, analysis: JDAnalysis) -> None:
+        """Persist the JD analysis linked to an existing application record."""
+        self._require(job_id)
+        self._conn.execute(
+            "INSERT INTO jd_analyses (job_id, analysis) VALUES (?, ?) "
+            "ON CONFLICT(job_id) DO UPDATE SET analysis = excluded.analysis",
+            (job_id, analysis.to_json()),
+        )
+        self._conn.commit()
+
+    def get_analysis(self, job_id: str) -> JDAnalysis | None:
+        row = self._conn.execute(
+            "SELECT analysis FROM jd_analyses WHERE job_id = ?", (job_id,)
+        ).fetchone()
+        return JDAnalysis.from_json(row["analysis"]) if row is not None else None
 
 
 @dataclass(frozen=True)
