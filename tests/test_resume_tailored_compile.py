@@ -41,6 +41,29 @@ def test_tailored_document_reorders_and_selects_projects() -> None:
         assert f"\\input{{sections/{first_section}.tex}}" in doc
 
 
+def test_plan_threads_feedback_into_prompt() -> None:
+    master = parse_master(ROOT)
+    captured: dict[str, str] = {}
+
+    class _Capture:
+        def generate(self, prompt: str) -> str:
+            captured["prompt"] = prompt
+            return '{"section_order": [], "selected_project_ids": [], "diff_narration": ""}'
+
+    tailor = ResumeTailor(_Capture(), master)
+    from cvflow.analysis import JDAnalysis
+
+    jd = JDAnalysis(
+        required_skills=["python"],
+        preferred_quals=[],
+        seniority="mid",
+        tone="neutral",
+        applicant_instructions=[],
+    )
+    tailor.plan(jd, feedback="emphasize backend work")
+    assert "emphasize backend work" in captured["prompt"]
+
+
 @pytest.mark.skipif(shutil.which("tectonic") is None, reason="tectonic not installed")
 def test_compile_tailored_produces_pdf(tmp_path: pytest.TempPathFactory) -> None:
     master = parse_master(ROOT)

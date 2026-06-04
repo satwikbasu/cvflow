@@ -126,6 +126,7 @@ _PLAN_PROMPT = (
     "## Available sections (default order)\n{sections}\n\n"
     "## Available projects (id: content)\n{projects}\n\n"
     "## Target job\nrequired_skills: {req}\npreferred_quals: {pref}\nseniority: {sen}\n"
+    "\nUser feedback to incorporate (optional): {feedback}\n"
 )
 
 
@@ -136,7 +137,7 @@ class ResumeTailor:
         self._provider = provider
         self._master = master
 
-    def plan(self, jd: JDAnalysis) -> TailoringPlan:
+    def plan(self, jd: JDAnalysis, *, feedback: str | None = None) -> TailoringPlan:
         prompt = _PLAN_PROMPT.format(
             sections=", ".join(self._master.section_order),
             projects="\n".join(
@@ -145,6 +146,7 @@ class ResumeTailor:
             req=", ".join(jd.required_skills),
             pref=", ".join(jd.preferred_quals),
             sen=jd.seniority,
+            feedback=feedback or "(none)",
         )
         raw = self._provider.generate(prompt)
         try:
