@@ -206,14 +206,34 @@ def build_tools(config: Any) -> CvflowTools:
     # master_tex_path points at the master.tex FILE; parse_master wants its dir root.
     master_root = Path(config.resume.master_tex_path).parent
     tailor = ResumeTailor(tailoring, parse_master(master_root))
-    # analyzer + discovery run on the NIM brain (configured in Hermes, no in-code
-    # provider class yet), so they are left unwired here. This phase's skills
-    # (request_review, compose_essay, status_report) need only the above.
+
+    from cvflow.analysis import JDAnalyzer
+    from cvflow.discovery import DiscoveryService, LLMRanker
+    from cvflow.llm import NimProvider
+
+    brain = NimProvider(
+        base_url=config.llm.brain.base_url,
+        api_key=config.llm.brain.api_key,
+        model=config.llm.brain.model,
+        max_requests_per_minute=config.llm.brain.max_requests_per_minute,
+    )
+    ranker = LLMRanker(brain, knowledge.full_context())
+    discovery = DiscoveryService(
+        store,
+        ranker,
+        search_terms=config.discovery.search_terms,
+        locations=config.discovery.locations,
+        sites=config.discovery.sites,
+        results_wanted_per_site=config.discovery.results_wanted_per_site,
+        hours_old=config.discovery.hours_old,
+        top_n=config.discovery.top_n_to_present,
+    )
+    analyzer = JDAnalyzer(brain)
     return CvflowTools(
         store=store,
         knowledge=knowledge,
-        discovery=None,
-        analyzer=None,
+        discovery=discovery,
+        analyzer=analyzer,
         tailor=tailor,
         output_dir=config.resume.output_dir,
         essay_provider=tailoring,

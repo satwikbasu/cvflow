@@ -217,3 +217,25 @@ def test_build_tools_wires_store_and_knowledge(tmp_path, monkeypatch):
     tools = build_tools(cfg)
     assert tools.ping()["status"] == "ok"
     assert isinstance(tools.list_applications(status="discovered"), list)
+
+
+def test_discover_returns_url_for_every_job():
+    from cvflow.discovery import JobPosting, RankedJob
+    from cvflow.storage import ApplicationStore
+
+    class _StubDiscovery:
+        def discover(self):
+            p = JobPosting(
+                job_id="indeed:7", title="Backend Dev", company="Acme",
+                location="Remote", description="d", url="https://jobs/7",
+                site="indeed", date_posted="2026-06-04",
+            )
+            return [RankedJob(posting=p, summary="s", rationale="r")]
+
+    tools = CvflowTools(
+        store=ApplicationStore(":memory:"), knowledge=None,
+        discovery=_StubDiscovery(), analyzer=None, tailor=None,
+    )
+    jobs = tools.discover()
+    assert jobs and all(j["url"] for j in jobs)
+    assert jobs[0]["url"] == "https://jobs/7"
