@@ -153,3 +153,18 @@ def test_form_fields_loads_committed_form_fields() -> None:
         pytest.skip("committed form_fields.json not present")
     ff = FormFields.load(FORM_FIELDS)
     assert "_comment" not in ff.values
+
+
+def test_set_proof_persists_url_screenshot_title():
+    from cvflow.storage import ApplicationStore
+
+    store = ApplicationStore(":memory:")
+    store.add("indeed:9", "Acme", "Backend", "https://jobs/9")
+    store.set_proof(
+        "indeed:9", url="https://acme/confirm",
+        screenshot_path="/data/proof/9.png", page_title="Application received",
+    )
+    app = store.get("indeed:9")
+    assert app.proof_url == "https://acme/confirm"
+    assert app.proof_screenshot_path == "/data/proof/9.png"
+    assert app.proof_page_title == "Application received"

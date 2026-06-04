@@ -57,6 +57,9 @@ class Application:
     applied_at: str | None = None
     tailored_pdf_path: str | None = None
     confirmation_ref: str | None = None
+    proof_url: str | None = None
+    proof_screenshot_path: str | None = None
+    proof_page_title: str | None = None
 
 
 _SCHEMA = """
@@ -69,7 +72,10 @@ CREATE TABLE IF NOT EXISTS applications (
     discovered_at     TEXT NOT NULL,
     applied_at        TEXT,
     tailored_pdf_path TEXT,
-    confirmation_ref  TEXT
+    confirmation_ref  TEXT,
+    proof_url             TEXT,
+    proof_screenshot_path TEXT,
+    proof_page_title      TEXT
 );
 CREATE TABLE IF NOT EXISTS jd_analyses (
     job_id    TEXT PRIMARY KEY REFERENCES applications(job_id),
@@ -100,6 +106,9 @@ class ApplicationStore:
             applied_at=row["applied_at"],
             tailored_pdf_path=row["tailored_pdf_path"],
             confirmation_ref=row["confirmation_ref"],
+            proof_url=row["proof_url"],
+            proof_screenshot_path=row["proof_screenshot_path"],
+            proof_page_title=row["proof_page_title"],
         )
 
     def add(self, job_id: str, company: str, role: str, jd_url: str) -> Application:
@@ -172,6 +181,18 @@ class ApplicationStore:
         self._require(job_id)
         self._conn.execute(
             "UPDATE applications SET confirmation_ref = ? WHERE job_id = ?", (ref, job_id)
+        )
+        self._conn.commit()
+
+    def set_proof(
+        self, job_id: str, *, url: str, screenshot_path: str, page_title: str
+    ) -> None:
+        """Persist submission proof. Additive — never touches status/approval."""
+        self._require(job_id)
+        self._conn.execute(
+            "UPDATE applications SET proof_url = ?, proof_screenshot_path = ?, "
+            "proof_page_title = ? WHERE job_id = ?",
+            (url, screenshot_path, page_title, job_id),
         )
         self._conn.commit()
 
