@@ -4,6 +4,12 @@
 % License : MIT
 % Populated as Satwik Basu's MASTER resume — the complete, unabridged record that
 % cvflow tailors per job (reorder/emphasize) WITHOUT adding facts. Keep it factual.
+%
+% MODULAR: the preamble + heading live here; each \section{} lives in its own
+% sections/*.tex pulled in via \input below, in default order. cvflow tailors a
+% per-job copy by reordering/swapping those \input lines deterministically — the
+% diff for the review gate (Goal 4) stays meaningful. Section *content* (the facts)
+% is only ever edited inside the section files, never invented.
 %------------------------
 
 \documentclass[letterpaper,11pt]{article}
@@ -101,77 +107,12 @@
     Kolkata, India
 \end{center}
 
-%-----------EXPERIENCE-----------
-\section{Experience}
-  \resumeSubHeadingListStart
-
-    \resumeSubheading
-      {Software Engineer}{June 2025 -- Present}
-      {Codezin Technology Solutions}{Kolkata, India}
-      \resumeItemListStart
-        \resumeItem{Designed a Docker Swarm multi-server architecture orchestrating OpenNMS, Apache Kafka (multi-broker), PostgreSQL, and 10--20 scalable Minion containers, enabling SNMP monitoring of up to 500K simulated nodes across 3 dedicated VPS in a private LAN}
-        \resumeItem{Built a custom Bash SNMP simulation engine using SNMPsim with per-node differentiated data via variation modules, scaling realistically to 500K+ nodes with configurable poller-to-node ratios}
-        \resumeItem{Integrated Apache Kafka as the streaming layer between Minions and OpenNMS, tuning broker count, partitions, and replication factor alongside tuned PostgreSQL configurations for sustained high-throughput data flow}
-        \resumeItem{Leveraged the OpenNMS REST API to build automated node-down alerting, adding a programmatic notification layer on top of the monitoring stack}
-        \resumeItem{Rebranded the OpenNMS Jetty web application from source within a Maven multi-module project, setting up a Jenkins CI/CD pipeline integrated with GitHub for triggered builds}
-        \resumeItem{Developed a Python REST API for IPSec tunnel observability, exposing tunnel health, on-demand self-healing (via StrongSwan + systemd timers), and multi-service log retrieval}
-      \resumeItemListEnd
-
-  \resumeSubHeadingListEnd
-
-%-----------EDUCATION-----------
-\section{Education}
-  \resumeSubHeadingListStart
-    \resumeSubheading
-      {RCC Institute of Information Technology}{Kolkata, India}
-      {Bachelor of Technology in Electronics and Communication Engineering}{2021 -- 2025}
-    \resumeSubheading
-      {Douglas Memorial Higher Secondary School}{Kolkata, India}
-      {ICSE (10th) and ISC (12th) --- 95\% in both}{2019 and 2021}
-  \resumeSubHeadingListEnd
-
-%-----------PROJECTS-----------
-\section{Projects}
-    \resumeSubHeadingListStart
-      \resumeProjectHeading
-          {\textbf{IPSec Tunnel Monitoring Dashboard} $|$ \emph{Figma-Make, Flask API, StrongSwan}}{}
-          \resumeItemListStart
-            \resumeItem{Built a real-time web monitoring station consuming a custom REST API to display live IPSec status, log streams, and one-click remediation controls}
-            \resumeItem{Designed a responsive UI via AI-assisted Figma-Make, integrated with a manually developed Python REST backend}
-          \resumeItemListEnd
-      \resumeProjectHeading
-          {\textbf{CRUDbot} $|$ \emph{Spring Boot, PostgreSQL, Docker, OpenAI API}}{}
-          \resumeItemListStart
-            \resumeItem{Developed a CRUD-based backend for managing notes, URLs, and reminders}
-            \resumeItem{Integrated PostgreSQL for persistent storage and Docker for containerized deployment}
-            \resumeItem{Planned expansion: OpenAI API-powered smart note organization}
-          \resumeItemListEnd
-    \resumeSubHeadingListEnd
-
-%-----------TECHNICAL SKILLS-----------
-\section{Technical Skills}
- \begin{itemize}[leftmargin=0.15in, label={}]
-    \small{\item{
-     \textbf{Languages}{: Java, Python, Go} \\
-     \textbf{API \& Integration}{: RESTful API (Flask), OpenNMS REST API} \\
-     \textbf{Networking \& Security}{: HTTP, TCP/IP, SNMP, IPSec, Firewall, NAT, DNS, Linux Administration} \\
-     \textbf{Databases}{: MySQL, PostgreSQL} \\
-     \textbf{DevOps \& Cloud}{: Docker, Docker Compose, Docker Swarm, Maven, Jenkins (CI/CD), Oracle Cloud} \\
-     \textbf{Messaging \& Streaming}{: Apache Kafka (multi-broker, partitioning, replication)} \\
-     \textbf{Monitoring \& Observability}{: OpenNMS, Grafana} \\
-     \textbf{Tools}{: VS Code, Figma-Make, GitHub Copilot, Claude}
-    }}
- \end{itemize}
-
-%-----------CERTIFICATIONS-----------
-\section{Certifications}
- \begin{itemize}[leftmargin=0.15in, label={}]
-    \small{\item{
-     Oracle Cloud Infrastructure 2025 Certified DevOps Professional \\
-     Industrial Training on Cybersecurity --- Webel-Fujisoft-Vara, Centre of Excellence \\
-     Computing using Python --- Ministry of Electronics and Information Technology
-    }}
- \end{itemize}
+%----------SECTIONS (default order; cvflow reorders these \input lines per job)----------
+\input{sections/experience.tex}
+\input{sections/education.tex}
+\input{sections/projects.tex}
+\input{sections/skills.tex}
+\input{sections/certifications.tex}
 
 %-------------------------------------------
 \end{document}
