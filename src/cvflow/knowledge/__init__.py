@@ -62,6 +62,10 @@ class KnowledgeBase:
     def project_docs(self) -> dict[str, str]:
         return {k: v for k, v in self.documents.items() if k.startswith("projects/")}
 
+    def doc_keys(self) -> list[str]:
+        """Return the profile document keys (relative stems)."""
+        return list(self.documents)
+
     def missing_form_fields(self) -> list[str]:
         return self.form_fields.missing()
 
