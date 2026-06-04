@@ -208,6 +208,45 @@ class ResumeTailor:
             lines.append(plan.diff_narration)
         return "\n".join(lines)
 
+    def tailored_document(self, plan: TailoringPlan) -> str:
+        """Return a full compilable .tex: real preamble + reordered body inputs."""
+        master_tex = (self._master.root / "master.tex").read_text()
+        begin = master_tex.index("\\begin{document}")
+        preamble = master_tex[:begin]
+        body_lines: list[str] = []
+        for name in plan.section_order:
+            if name == "projects":
+                body_lines.append("\\section{Projects}")
+                body_lines.append("    \\resumeSubHeadingListStart")
+                for pid in plan.selected_project_ids:
+                    body_lines.append(f"      \\input{{sections/projects/{pid}.tex}}")
+                body_lines.append("    \\resumeSubHeadingListEnd")
+            else:
+                body_lines.append(f"\\input{{sections/{name}.tex}}")
+        body = "\n".join(body_lines)
+        return f"{preamble}\\begin{{document}}\n{body}\n\\end{{document}}\n"
+
+    def compile_tailored(self, plan: TailoringPlan, outdir: str | Path) -> Path:
+        """Write the tailored document into the resume root and Tectonic-compile it."""
+        if shutil.which("tectonic") is None:
+            raise CompileError("tectonic not found on PATH")
+        self.assert_no_new_facts(self.render(plan))
+        outdir = Path(outdir)
+        outdir.mkdir(parents=True, exist_ok=True)
+        tailored_path = self._master.root / "_tailored.tex"
+        tailored_path.write_text(self.tailored_document(plan))
+        try:
+            result = subprocess.run(
+                ["tectonic", "-X", "compile", str(tailored_path), "--outdir", str(outdir)],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                raise CompileError(result.stderr[-2000:])
+            return outdir / "_tailored.pdf"
+        finally:
+            tailored_path.unlink(missing_ok=True)
+
     def compile_master(self, outdir: str | Path) -> Path:
         """Compile the repo's ``master.tex`` as-is to a PDF in ``outdir`` (Tectonic)."""
         if shutil.which("tectonic") is None:
