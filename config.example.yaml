@@ -40,7 +40,7 @@ llm:
 resume:
   master_tex_path: "resume/master.tex"   # your modular master LaTeX resume
   output_dir: "data/resumes"             # compiled tailored PDFs land here
-  latex_compiler: "latexmk"              # or "pdflatex"
+  latex_compiler: "tectonic"             # locked decision; resume/ shells to tectonic regardless
 
 automation:
   headless: false                 # run headed under xvfb on the server
