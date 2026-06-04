@@ -10,5 +10,6 @@ playwright               # browser automation skill for form filling & auth (Goa
 google-genai             # Gemini client for the resume-tailoring escalation only
 cryptography             # Fernet encryption of tokens/cookies at rest
 pyyaml                   # config loading
+mcp>=1.0                 # MCP SDK (FastMCP stdio server exposing cvflow skills to Hermes)
 # SQLite is in the Python stdlib (sqlite3); no dependency needed.
 # LaTeX (TeX Live / latexmk) is a system package, not a pip dependency.

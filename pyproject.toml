@@ -15,6 +15,7 @@ dependencies = [
     "google-genai>=1.0",       # Gemini client for the resume-tailoring escalation
     "cryptography>=42",        # Fernet encryption of tokens/cookies at rest
     "pyyaml>=6.0",             # config loading
+    "mcp>=1.0",                # MCP SDK (FastMCP stdio server exposing cvflow skills to Hermes)
     # SQLite is stdlib; LaTeX (TeX Live/latexmk) is a system package.
 ]
 
