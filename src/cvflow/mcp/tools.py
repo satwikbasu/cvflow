@@ -17,7 +17,7 @@ import json
 from dataclasses import asdict
 from typing import Any
 
-from cvflow.statemachine import Status, SubmissionBlocked, guard_can_submit
+from cvflow.statemachine import Status, guard_can_submit
 from cvflow.storage import UnknownJob
 
 TOOL_NAMES: tuple[str, ...] = (
