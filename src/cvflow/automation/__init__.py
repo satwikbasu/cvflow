@@ -23,6 +23,7 @@ __all__ = [
     "resolve_field",
     "SessionManager",
     "FormFiller",
+    "Proof",
 ]
 
 
@@ -57,6 +58,14 @@ class FieldResolution:
 class NeedsClarification:
     job_id: str
     question: str
+
+
+@dataclass(frozen=True)
+class Proof:
+    url: str
+    page_title: str
+    screenshot_path: str
+    confirmation_ref: str | None
 
 
 def _normalize(text: str) -> str:
@@ -184,3 +193,14 @@ class FormFiller:
             self._page.set_input_files(target, value)
         else:
             self._page.fill(target, value)
+
+    def capture_proof(self, screenshot_path: str) -> Proof:
+        self._page.screenshot(path=screenshot_path)
+        body = self._page.inner_text("body")
+        m = re.search(r"#\s*([A-Za-z0-9-]+)", body)
+        return Proof(
+            url=self._page.url,
+            page_title=self._page.title(),
+            screenshot_path=screenshot_path,
+            confirmation_ref=m.group(0) if m else None,
+        )

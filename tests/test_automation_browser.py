@@ -49,3 +49,15 @@ def test_apply_fills_each_field_type(session, tmp_path):
     assert page.input_value("#experience_level") == "senior"
     assert page.is_checked("#relocate") is True
     assert page.input_value("#why_us") == "I love backends"
+
+
+def test_capture_proof_returns_url_title_and_screenshot(session, tmp_path):
+    page2 = (Path(__file__).parent / "fixtures" / "form" / "page2.html").resolve()
+    page = session.open("job2", page2.as_uri())
+    page.click("#submit")
+    filler = FormFiller(page)
+    proof = filler.capture_proof(str(tmp_path / "proof.png"))
+    assert proof.page_title == "Application received"
+    assert "ABC-12345" in (proof.confirmation_ref or "")
+    assert proof.url.endswith("page2.html")
+    assert Path(proof.screenshot_path).exists()
