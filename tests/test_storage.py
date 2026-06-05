@@ -168,3 +168,21 @@ def test_set_proof_persists_url_screenshot_title():
     assert app.proof_url == "https://acme/confirm"
     assert app.proof_screenshot_path == "/data/proof/9.png"
     assert app.proof_page_title == "Application received"
+
+
+def test_set_otp_deadline_and_list_awaiting_otp():
+    from cvflow.storage import ApplicationStore
+
+    store = ApplicationStore(":memory:")
+    store.add("indeed:1", "Acme", "Backend", "https://jobs/1")
+    store.add("indeed:2", "Globex", "Platform", "https://jobs/2")
+    assert store.list_awaiting_otp() == []
+
+    store.set_otp_deadline("indeed:1", "2026-06-05T10:00:00+00:00")
+    assert store.get("indeed:1").otp_deadline == "2026-06-05T10:00:00+00:00"
+    awaiting = store.list_awaiting_otp()
+    assert [a.job_id for a in awaiting] == ["indeed:1"]
+
+    store.set_otp_deadline("indeed:1", None)
+    assert store.get("indeed:1").otp_deadline is None
+    assert store.list_awaiting_otp() == []

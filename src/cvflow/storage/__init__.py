@@ -60,6 +60,7 @@ class Application:
     proof_url: str | None = None
     proof_screenshot_path: str | None = None
     proof_page_title: str | None = None
+    otp_deadline: str | None = None
 
 
 _SCHEMA = """
@@ -75,7 +76,8 @@ CREATE TABLE IF NOT EXISTS applications (
     confirmation_ref  TEXT,
     proof_url             TEXT,
     proof_screenshot_path TEXT,
-    proof_page_title      TEXT
+    proof_page_title      TEXT,
+    otp_deadline          TEXT
 );
 CREATE TABLE IF NOT EXISTS jd_analyses (
     job_id    TEXT PRIMARY KEY REFERENCES applications(job_id),
@@ -109,6 +111,7 @@ class ApplicationStore:
             proof_url=row["proof_url"],
             proof_screenshot_path=row["proof_screenshot_path"],
             proof_page_title=row["proof_page_title"],
+            otp_deadline=row["otp_deadline"],
         )
 
     def add(self, job_id: str, company: str, role: str, jd_url: str) -> Application:
@@ -195,6 +198,21 @@ class ApplicationStore:
             (url, screenshot_path, page_title, job_id),
         )
         self._conn.commit()
+
+    def set_otp_deadline(self, job_id: str, deadline: str | None) -> None:
+        """Set or clear the pending OTP deadline (ISO-8601). Additive — no status change."""
+        self._require(job_id)
+        self._conn.execute(
+            "UPDATE applications SET otp_deadline = ? WHERE job_id = ?", (deadline, job_id)
+        )
+        self._conn.commit()
+
+    def list_awaiting_otp(self) -> list[Application]:
+        """Return apps with a non-NULL otp_deadline (an OTP wait is pending)."""
+        rows = self._conn.execute(
+            "SELECT * FROM applications WHERE otp_deadline IS NOT NULL ORDER BY discovered_at"
+        ).fetchall()
+        return [self._row_to_app(r) for r in rows]
 
     def save_analysis(self, job_id: str, analysis: JDAnalysis) -> None:
         """Persist the JD analysis linked to an existing application record."""
