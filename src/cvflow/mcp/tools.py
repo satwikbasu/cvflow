@@ -32,6 +32,7 @@ TOOL_NAMES: tuple[str, ...] = (
     "status_report",
     "fill_application",
     "resume_application",
+    "submit_otp",
 )
 
 
@@ -49,6 +50,7 @@ class CvflowTools:
         output_dir: str = "data/tailored",
         essay_provider: Any = None,
         automator: Any = None,
+        otp_coordinator: Any = None,
     ) -> None:
         self._store = store
         self._knowledge = knowledge
@@ -58,6 +60,7 @@ class CvflowTools:
         self._output_dir = output_dir
         self._essay_provider = essay_provider
         self._automator = automator
+        self._otp = otp_coordinator
 
     # ------------------------------------------------------------------
     # Health
@@ -164,6 +167,18 @@ class CvflowTools:
         result: dict[str, Any] = self._automator.resume(job_id, answer)
         return result
 
+    def submit_otp(self, job_id: str, otp: str) -> dict[str, Any]:
+        """Resolve a user-supplied OTP; on time, resume the application.
+
+        Gated: an on-time OTP routes into Automator.resume, which asserts
+        guard_can_submit. An expired OTP returns otp_timeout and does NOT resume.
+        """
+        code = self._otp.provide(job_id, otp)
+        if code is None:
+            return {"otp_timeout": True, "job_id": job_id}
+        result: dict[str, Any] = self._automator.resume(job_id, code)
+        return result
+
     # ------------------------------------------------------------------
     # Discovery
     # ------------------------------------------------------------------
@@ -264,6 +279,15 @@ def build_tools(config: Any) -> CvflowTools:
         notify=_telegram_notify,
         screenshot_dir=config.automation.storage_state_dir,
     )
+
+    from cvflow.auth import OtpCoordinator, TokenVault
+
+    TokenVault.create_or_load(config.security.fernet_key_path)  # ensure key exists, chmod 600
+    otp_coordinator = OtpCoordinator(
+        store=store,
+        notify=_telegram_notify,
+        timeout_minutes=config.auth.otp_timeout_minutes,
+    )
     return CvflowTools(
         store=store,
         knowledge=knowledge,
@@ -273,6 +297,7 @@ def build_tools(config: Any) -> CvflowTools:
         output_dir=config.resume.output_dir,
         essay_provider=tailoring,
         automator=automator,
+        otp_coordinator=otp_coordinator,
     )
 
 

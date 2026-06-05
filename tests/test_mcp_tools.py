@@ -267,3 +267,39 @@ def test_fill_application_is_gated_and_has_no_approve_tool():
     with pytest.raises(SubmissionBlocked):
         tools.fill_application("indeed:1")
     assert not hasattr(tools, "approve")
+
+
+def test_submit_otp_routes_on_time_and_times_out_late():
+    from cvflow.mcp.tools import TOOL_NAMES
+
+    assert "approve" not in TOOL_NAMES
+    assert "submit_otp" in TOOL_NAMES
+
+    class _Coord:
+        def __init__(self, code):
+            self._code = code
+        def provide(self, job_id, otp):
+            return self._code  # None simulates expiry
+
+    class _Auto:
+        def __init__(self):
+            self.resumed = None
+        def resume(self, job_id, answer):
+            self.resumed = (job_id, answer)
+            return {"status": "applied"}
+
+    auto = _Auto()
+    tools = CvflowTools(
+        store=None, knowledge=None, discovery=None, analyzer=None,
+        tailor=None, automator=auto, otp_coordinator=_Coord("123456"),
+    )
+    assert tools.submit_otp("indeed:1", "123456") == {"status": "applied"}
+    assert auto.resumed == ("indeed:1", "123456")
+
+    auto2 = _Auto()
+    tools2 = CvflowTools(
+        store=None, knowledge=None, discovery=None, analyzer=None,
+        tailor=None, automator=auto2, otp_coordinator=_Coord(None),
+    )
+    assert tools2.submit_otp("indeed:1", "123456") == {"otp_timeout": True, "job_id": "indeed:1"}
+    assert auto2.resumed is None
