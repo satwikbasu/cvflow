@@ -264,7 +264,9 @@ def build_tools(config: Any) -> CvflowTools:
     analyzer = JDAnalyzer(brain)
 
     from cvflow.automation import Automator, FormFiller, SessionManager
+    from cvflow.notify import HermesNotifier
 
+    notifier = HermesNotifier()
     sessions = SessionManager(
         user_data_root=config.automation.storage_state_dir,
         headless=config.automation.headless,
@@ -276,7 +278,7 @@ def build_tools(config: Any) -> CvflowTools:
         provider=tailoring,
         sessions=sessions,
         filler_factory=FormFiller,
-        notify=_telegram_notify,
+        notify=notifier,
         screenshot_dir=config.automation.storage_state_dir,
     )
 
@@ -285,7 +287,7 @@ def build_tools(config: Any) -> CvflowTools:
     TokenVault.create_or_load(config.security.fernet_key_path)  # ensure key exists, chmod 600
     otp_coordinator = OtpCoordinator(
         store=store,
-        notify=_telegram_notify,
+        notify=notifier,
         timeout_minutes=config.auth.otp_timeout_minutes,
     )
     return CvflowTools(
@@ -299,11 +301,3 @@ def build_tools(config: Any) -> CvflowTools:
         automator=automator,
         otp_coordinator=otp_coordinator,
     )
-
-
-def _telegram_notify(message: str) -> None:
-    """Surface a user-facing notice. Hermes relays MCP tool returns to Telegram;
-    this also logs so a crash notice is never lost (invariant 3)."""
-    import logging
-
-    logging.getLogger("cvflow.automation").warning("NOTIFY: %s", message)
