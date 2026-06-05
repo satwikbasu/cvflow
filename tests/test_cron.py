@@ -63,3 +63,19 @@ def test_run_job_heartbeat_reports_status_counts():
 def test_run_job_unknown_raises():
     with pytest.raises(ValueError):
         run_job("bogus", store=None, discovery=None, otp=None, notify=lambda m: None)
+
+
+def test_main_dispatches_with_injected_services():
+    notes = []
+    store = ApplicationStore(":memory:")
+    services = (store, None, None, notes.append)
+
+    from cvflow.cron import main
+    main(["heartbeat"], services=services)
+    assert notes and "alive" in notes[0]
+
+
+def test_main_bad_args_exits():
+    from cvflow.cron import main
+    with pytest.raises(SystemExit):
+        main([], services=(None, None, None, lambda m: None))

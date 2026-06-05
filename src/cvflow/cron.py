@@ -39,3 +39,61 @@ def run_job(job: str, *, store: Any, discovery: Any, otp: Any, notify: Any) -> N
         notify(f"💓 cvflow alive — {counts}")
     else:
         raise ValueError(f"unknown cron job: {job}")
+
+
+def _build(config: Any) -> tuple[Any, Any, Any, Any]:
+    """Construct the minimal services for the cron jobs (NO browser/Automator)."""
+    from cvflow.auth import OtpCoordinator
+    from cvflow.discovery import DiscoveryService, LLMRanker
+    from cvflow.knowledge import KnowledgeBase
+    from cvflow.llm import NimProvider
+    from cvflow.notify import HermesNotifier
+    from cvflow.storage import ApplicationStore
+
+    store = ApplicationStore(config.storage.db_path)
+    knowledge = KnowledgeBase.load(
+        config.profile.knowledge_base_dir, config.storage.form_fields_path
+    )
+    brain = NimProvider(
+        base_url=config.llm.brain.base_url,
+        api_key=config.llm.brain.api_key,
+        model=config.llm.brain.model,
+        max_requests_per_minute=config.llm.brain.max_requests_per_minute,
+    )
+    discovery = DiscoveryService(
+        store,
+        LLMRanker(brain, knowledge.full_context()),
+        search_terms=config.discovery.search_terms,
+        locations=config.discovery.locations,
+        sites=config.discovery.sites,
+        results_wanted_per_site=config.discovery.results_wanted_per_site,
+        hours_old=config.discovery.hours_old,
+        top_n=config.discovery.top_n_to_present,
+    )
+    notify = HermesNotifier()
+    otp = OtpCoordinator(
+        store=store, notify=notify, timeout_minutes=config.auth.otp_timeout_minutes
+    )
+    return store, discovery, otp, notify
+
+
+def main(
+    argv: list[str] | None = None,
+    *,
+    services: tuple[Any, Any, Any, Any] | None = None,
+) -> None:
+    import sys
+
+    args = list(argv) if argv is not None else sys.argv[1:]
+    if len(args) != 1:
+        raise SystemExit("usage: python -m cvflow.cron <discover|sweep-otp|heartbeat>")
+    if services is None:
+        from cvflow.config import load_config
+
+        services = _build(load_config("config.yaml"))
+    store, discovery, otp, notify = services
+    run_job(args[0], store=store, discovery=discovery, otp=otp, notify=notify)
+
+
+if __name__ == "__main__":
+    main()
