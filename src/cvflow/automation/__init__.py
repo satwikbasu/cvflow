@@ -21,6 +21,8 @@ __all__ = [
     "FieldResolution",
     "NeedsClarification",
     "resolve_field",
+    "SessionManager",
+    "FormFiller",
 ]
 
 
@@ -83,3 +85,102 @@ def resolve_field(
     if spec.required:
         return FieldResolution(None, True, spec.label)
     return FieldResolution(FieldFill(spec.label, "", "skipped"), False, None)
+
+
+class SessionManager:
+    """Holds live persistent browser contexts keyed by job_id (Option-C hybrid).
+
+    The on-disk user_data_dir persists login/cookies across restarts; the live
+    context/page is held in-process so pause->resume continues on the same page.
+    """
+
+    def __init__(self, *, user_data_root: str, headless: bool = False,
+                 use_stealth: bool = True) -> None:
+        from pathlib import Path
+
+        from playwright.sync_api import sync_playwright
+
+        self._root = Path(user_data_root)
+        self._root.mkdir(parents=True, exist_ok=True)
+        self._headless = headless
+        self._args = (
+            ["--disable-blink-features=AutomationControlled"] if use_stealth else []
+        )
+        self._pw = sync_playwright().start()
+        self._contexts: dict[str, Any] = {}
+        self._pages: dict[str, Any] = {}
+
+    def open(self, job_id: str, url: str) -> Any:
+        if job_id not in self._contexts:
+            ctx = self._pw.chromium.launch_persistent_context(
+                user_data_dir=str(self._root / job_id),
+                headless=self._headless,
+                args=self._args,
+            )
+            self._contexts[job_id] = ctx
+            self._pages[job_id] = ctx.pages[0] if ctx.pages else ctx.new_page()
+            self._pages[job_id].goto(url)
+        return self._pages[job_id]
+
+    def page(self, job_id: str) -> Any | None:
+        return self._pages.get(job_id)
+
+    def close(self, job_id: str) -> None:
+        ctx = self._contexts.pop(job_id, None)
+        self._pages.pop(job_id, None)
+        if ctx is not None:
+            ctx.close()
+
+    def close_all(self) -> None:
+        for job_id in list(self._contexts):
+            self.close(job_id)
+        self._pw.stop()
+
+
+class FormFiller:
+    """Reads & fills fields on a single Playwright Page; captures proof."""
+
+    def __init__(self, page: Any) -> None:
+        self._page = page
+
+    def discover_fields(self) -> list[FieldSpec]:
+        specs: list[FieldSpec] = []
+        for el in self._page.query_selector_all("input, textarea, select"):
+            name = el.get_attribute("name") or el.get_attribute("id") or ""
+            if not name:
+                continue
+            tag = el.evaluate("e => e.tagName.toLowerCase()")
+            if tag == "textarea":
+                ftype = "textarea"
+            elif tag == "select":
+                ftype = "select"
+            else:
+                ftype = el.get_attribute("type") or "text"
+            options = (
+                [o.get_attribute("value") or "" for o in el.query_selector_all("option")]
+                if ftype == "select" else []
+            )
+            label = self._label_for(name) or name
+            required = el.get_attribute("required") is not None
+            specs.append(FieldSpec(label, name, ftype, options, required))
+        return specs
+
+    def _label_for(self, name: str) -> str:
+        el = self._page.query_selector(f"label[for='{name}']")
+        return el.inner_text().strip() if el else ""
+
+    def apply(self, name: str, field_type: str, value: str) -> None:
+        target = (
+            f"[name='{name}']"
+            if self._page.query_selector(f"[name='{name}']")
+            else f"#{name}"
+        )
+        if field_type == "select":
+            self._page.select_option(target, value)
+        elif field_type == "checkbox":
+            if value.lower() in ("true", "yes", "1"):
+                self._page.check(target)
+        elif field_type == "file":
+            self._page.set_input_files(target, value)
+        else:
+            self._page.fill(target, value)
