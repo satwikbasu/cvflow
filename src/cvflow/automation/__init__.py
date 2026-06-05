@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from cvflow.essays import compose_answer
+from cvflow.statemachine import Status, guard_can_submit
+from cvflow.storage import UnknownJob
 
 __all__ = [
     "FieldSpec",
@@ -24,6 +26,7 @@ __all__ = [
     "SessionManager",
     "FormFiller",
     "Proof",
+    "Automator",
 ]
 
 
@@ -194,6 +197,10 @@ class FormFiller:
         else:
             self._page.fill(target, value)
 
+    def submit(self) -> None:
+        self._page.click("#submit, button[type='submit'], input[type='submit']")
+        self._page.wait_for_load_state("networkidle")
+
     def capture_proof(self, screenshot_path: str) -> Proof:
         self._page.screenshot(path=screenshot_path)
         body = self._page.inner_text("body")
@@ -204,3 +211,93 @@ class FormFiller:
             screenshot_path=screenshot_path,
             confirmation_ref=m.group(0) if m else None,
         )
+
+
+class Automator:
+    """Gated orchestration of fill -> (pause/resume) -> disclose -> submit -> proof."""
+
+    def __init__(
+        self, *, store: Any, knowledge: Any, provider: _Provider, sessions: Any,
+        filler_factory: Any, notify: Any, screenshot_dir: str,
+    ) -> None:
+        self._store = store
+        self._kb = knowledge
+        self._provider = provider
+        self._sessions = sessions
+        self._make_filler = filler_factory
+        self._notify = notify
+        self._shot_dir = screenshot_dir
+        self._pending: dict[str, FieldSpec] = {}   # job_id -> awaiting-clarification spec
+        self._composed: dict[str, list[FieldFill]] = {}
+
+    def _app(self, job_id: str) -> Any:
+        app = self._store.get(job_id)
+        if app is None:
+            raise UnknownJob(job_id)
+        return app
+
+    def fill(self, job_id: str) -> dict[str, Any]:
+        app = self._app(job_id)
+        guard_can_submit(app.status)  # raises SubmissionBlocked unless APPROVED
+        page = self._sessions.open(job_id, app.jd_url)
+        self._composed[job_id] = []
+        filler = self._make_filler(page)
+        return self._run(job_id, app, filler, filler.discover_fields())
+
+    def resume(self, job_id: str, answer: str) -> dict[str, Any]:
+        app = self._app(job_id)
+        guard_can_submit(app.status)
+        spec = self._pending.pop(job_id, None)
+        page = self._sessions.page(job_id)
+        filler = self._make_filler(page)
+        if spec is not None:
+            filler.apply(spec.name, spec.field_type, answer)
+        return self._run(job_id, app, filler, filler.discover_fields(),
+                         already=spec.name if spec else None)
+
+    def _run(
+        self, job_id: str, app: Any, filler: Any, specs: list[FieldSpec],
+        already: str | None = None,
+    ) -> dict[str, Any]:
+        ff = self._kb.form_fields
+        try:
+            for spec in specs:
+                if already is not None and spec.name == already:
+                    continue
+                r = resolve_field(spec, ff, self._kb, provider=self._provider)
+                if r.clarify:
+                    self._pending[job_id] = spec
+                    self._notify(f"[{job_id}] Need an answer: {r.question}")
+                    return {"needs_clarification": True, "job_id": job_id,
+                            "question": r.question}
+                assert r.fill is not None  # non-clarify always carries a fill
+                if r.fill.source == "skipped":
+                    continue
+                filler.apply(spec.name, spec.field_type, r.fill.value)
+                if r.fill.source == "composed":
+                    self._composed[job_id].append(r.fill)
+            self._disclose_composed(job_id)
+            filler.submit()
+            proof = filler.capture_proof(f"{self._shot_dir}/{job_id}.png")
+            self._store.set_proof(job_id, url=proof.url,
+                                  screenshot_path=proof.screenshot_path,
+                                  page_title=proof.page_title)
+            if proof.confirmation_ref:
+                self._store.set_confirmation(job_id, proof.confirmation_ref)
+            self._store.set_status(job_id, Status.APPLIED)
+            self._sessions.close(job_id)
+            return {"status": "applied", "job_id": job_id, "proof_url": proof.url}
+        except Exception as exc:  # never silent (invariant 3)
+            self._store.set_status(job_id, Status.FAILED)
+            self._sessions.close(job_id)
+            self._notify(
+                f"❌ Application failed for {app.company} — {app.role} "
+                f"({app.jd_url}): {exc}"
+            )
+            return {"failed": True, "job_id": job_id, "error": str(exc)}
+
+    def _disclose_composed(self, job_id: str) -> None:
+        for fill in self._composed.get(job_id, []):
+            self._notify(
+                f"[{job_id}] Composed answer for '{fill.label}': {fill.value}"
+            )
