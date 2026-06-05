@@ -30,6 +30,8 @@ TOOL_NAMES: tuple[str, ...] = (
     "submit",
     "compose_essay",
     "status_report",
+    "fill_application",
+    "resume_application",
 )
 
 
@@ -46,6 +48,7 @@ class CvflowTools:
         tailor: Any,
         output_dir: str = "data/tailored",
         essay_provider: Any = None,
+        automator: Any = None,
     ) -> None:
         self._store = store
         self._knowledge = knowledge
@@ -54,6 +57,7 @@ class CvflowTools:
         self._tailor = tailor
         self._output_dir = output_dir
         self._essay_provider = essay_provider
+        self._automator = automator
 
     # ------------------------------------------------------------------
     # Health
@@ -146,6 +150,20 @@ class CvflowTools:
         guard_can_submit(app.status)  # raises SubmissionBlocked if not approved
         return self._app_to_dict(app)
 
+    def fill_application(self, job_id: str) -> dict[str, Any]:
+        """Fill the approved application; returns proof or a clarification request.
+
+        Gated: the underlying Automator asserts guard_can_submit, so only an
+        APPROVED job (set out-of-band by the human /apply) reaches the browser.
+        """
+        result: dict[str, Any] = self._automator.fill(job_id)
+        return result
+
+    def resume_application(self, job_id: str, answer: str) -> dict[str, Any]:
+        """Continue a paused application with the user's clarification answer."""
+        result: dict[str, Any] = self._automator.resume(job_id, answer)
+        return result
+
     # ------------------------------------------------------------------
     # Discovery
     # ------------------------------------------------------------------
@@ -229,6 +247,23 @@ def build_tools(config: Any) -> CvflowTools:
         top_n=config.discovery.top_n_to_present,
     )
     analyzer = JDAnalyzer(brain)
+
+    from cvflow.automation import Automator, FormFiller, SessionManager
+
+    sessions = SessionManager(
+        user_data_root=config.automation.storage_state_dir,
+        headless=config.automation.headless,
+        use_stealth=config.automation.use_stealth,
+    )
+    automator = Automator(
+        store=store,
+        knowledge=knowledge,
+        provider=tailoring,
+        sessions=sessions,
+        filler_factory=FormFiller,
+        notify=_telegram_notify,
+        screenshot_dir=config.automation.storage_state_dir,
+    )
     return CvflowTools(
         store=store,
         knowledge=knowledge,
@@ -237,4 +272,13 @@ def build_tools(config: Any) -> CvflowTools:
         tailor=tailor,
         output_dir=config.resume.output_dir,
         essay_provider=tailoring,
+        automator=automator,
     )
+
+
+def _telegram_notify(message: str) -> None:
+    """Surface a user-facing notice. Hermes relays MCP tool returns to Telegram;
+    this also logs so a crash notice is never lost (invariant 3)."""
+    import logging
+
+    logging.getLogger("cvflow.automation").warning("NOTIFY: %s", message)

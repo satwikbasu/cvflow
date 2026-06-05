@@ -239,3 +239,31 @@ def test_discover_returns_url_for_every_job():
     jobs = tools.discover()
     assert jobs and all(j["url"] for j in jobs)
     assert jobs[0]["url"] == "https://jobs/7"
+
+
+def test_fill_application_is_gated_and_has_no_approve_tool():
+    from cvflow.mcp.tools import TOOL_NAMES
+    from cvflow.statemachine import SubmissionBlocked, guard_can_submit
+    from cvflow.storage import ApplicationStore
+
+    assert "approve" not in TOOL_NAMES
+    assert "fill_application" in TOOL_NAMES
+    assert "resume_application" in TOOL_NAMES
+
+    store = ApplicationStore(":memory:")
+    store.add("indeed:1", "Acme", "Backend", "https://jobs/1")
+
+    class _Auto:
+        def fill(self, job_id):
+            guard_can_submit(store.get(job_id).status)
+            return {"status": "applied"}
+        def resume(self, job_id, answer):
+            return {"status": "applied"}
+
+    tools = CvflowTools(
+        store=store, knowledge=None, discovery=None, analyzer=None,
+        tailor=None, automator=_Auto(),
+    )
+    with pytest.raises(SubmissionBlocked):
+        tools.fill_application("indeed:1")
+    assert not hasattr(tools, "approve")
