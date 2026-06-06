@@ -69,7 +69,7 @@ def test_run_job_unknown_raises():
 def test_main_dispatches_with_injected_services():
     notes = []
     store = ApplicationStore(":memory:")
-    services = (store, None, None, notes.append)
+    services = (store, None, None, notes.append, None)
 
     from cvflow.cron import main
     main(["heartbeat"], services=services)
@@ -79,7 +79,7 @@ def test_main_dispatches_with_injected_services():
 def test_main_bad_args_exits():
     from cvflow.cron import main
     with pytest.raises(SystemExit):
-        main([], services=(None, None, None, lambda m: None))
+        main([], services=(None, None, None, lambda m: None, None))
 
 
 def test_main_notifies_on_job_failure():
@@ -91,7 +91,7 @@ def test_main_notifies_on_job_failure():
 
     from cvflow.cron import main
     with pytest.raises(RuntimeError):
-        main(["discover"], services=(None, _Disc(), None, notes.append))
+        main(["discover"], services=(None, _Disc(), None, notes.append, None))
     assert any("failed" in n for n in notes)
 
 
@@ -125,3 +125,27 @@ def test_run_job_discover_persists_digest_slots():
 
     run_job("discover", store=store, discovery=_Disc(), otp=None, notify=lambda m: None)
     assert store.digest_slots() == ["indeed:a", "indeed:b"]
+
+
+def test_run_job_learn_notifies_suggestion():
+    from cvflow.cron import run_job
+    from cvflow.statemachine import Status
+    from cvflow.storage import ApplicationStore
+    store = ApplicationStore(":memory:")
+    for jid, st in [("indeed:a", Status.APPLIED), ("indeed:b", Status.SKIPPED),
+                    ("indeed:c", Status.SKIPPED)]:
+        store.add(jid, f"Co-{jid}", "Role", "https://x")
+        if st is Status.APPLIED:
+            store.set_status(jid, Status.PENDING_REVIEW)
+            store.approve(jid)
+            store.set_status(jid, Status.APPLIED)
+        else:
+            store.set_status(jid, Status.SKIPPED)
+    notes = []
+
+    class _Prov:
+        def generate(self, prompt): return "Avoid service cos."
+
+    run_job("learn", store=store, discovery=None, otp=None, notify=notes.append,
+            learn_provider=_Prov(), min_decisions=1)
+    assert any("Avoid service cos." in n for n in notes)

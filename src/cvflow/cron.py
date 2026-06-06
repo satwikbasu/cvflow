@@ -32,7 +32,10 @@ def format_digest(ranked: list[Any]) -> str:
     return "\n".join(parts)
 
 
-def run_job(job: str, *, store: Any, discovery: Any, otp: Any, notify: Any) -> None:
+def run_job(
+    job: str, *, store: Any, discovery: Any, otp: Any, notify: Any,
+    learn_provider: Any = None, min_decisions: int = 5,
+) -> None:
     """Dispatch one scheduled job. Pure of config/network — deps are injected."""
     if job == "discover":
         ranked = discovery.discover()
@@ -43,11 +46,30 @@ def run_job(job: str, *, store: Any, discovery: Any, otp: Any, notify: Any) -> N
     elif job == "heartbeat":
         counts = ", ".join(f"{s.value}={len(store.list_by_status(s))}" for s in Status)
         notify(f"💓 cvflow alive — {counts}")
+    elif job == "learn":
+        from cvflow.learning import summarize_decisions
+
+        def _jobs(*statuses: Status) -> list[dict[str, Any]]:
+            out: list[dict[str, Any]] = []
+            for s in statuses:
+                out += [{"role": a.role, "company": a.company} for a in store.list_by_status(s)]
+            return out
+
+        applied = _jobs(Status.APPROVED, Status.APPLIED)
+        skipped = _jobs(Status.SKIPPED)
+        suggestion = summarize_decisions(
+            applied, skipped, provider=learn_provider, min_decisions=min_decisions
+        )
+        if suggestion:
+            notify(
+                "💡 Preference suggestions (reply by editing profile/preferences.md):\n"
+                + suggestion
+            )
     else:
         raise ValueError(f"unknown cron job: {job}")
 
 
-def _build(config: Any) -> tuple[Any, Any, Any, Any]:
+def _build(config: Any) -> tuple[Any, Any, Any, Any, Any]:
     """Construct the minimal services for the cron jobs (NO browser/Automator)."""
     from cvflow.auth import OtpCoordinator
     from cvflow.discovery import DiscoveryService, LLMRanker, format_preferences
@@ -85,26 +107,29 @@ def _build(config: Any) -> tuple[Any, Any, Any, Any]:
     otp = OtpCoordinator(
         store=store, notify=notify, timeout_minutes=config.auth.otp_timeout_minutes
     )
-    return store, discovery, otp, notify
+    return store, discovery, otp, notify, brain
 
 
 def main(
     argv: list[str] | None = None,
     *,
-    services: tuple[Any, Any, Any, Any] | None = None,
+    services: tuple[Any, Any, Any, Any, Any] | None = None,
 ) -> None:
     import sys
 
     args = list(argv) if argv is not None else sys.argv[1:]
     if len(args) != 1:
-        raise SystemExit("usage: python -m cvflow.cron <discover|sweep-otp|heartbeat>")
+        raise SystemExit("usage: python -m cvflow.cron <discover|sweep-otp|heartbeat|learn>")
     if services is None:
         from cvflow.config import load_config
 
         services = _build(load_config("config.yaml"))
-    store, discovery, otp, notify = services
+    store, discovery, otp, notify, brain = services
     try:
-        run_job(args[0], store=store, discovery=discovery, otp=otp, notify=notify)
+        run_job(
+            args[0], store=store, discovery=discovery, otp=otp, notify=notify,
+            learn_provider=brain,
+        )
     except Exception as exc:  # noqa: BLE001 — a cron crash must still reach the user
         notify(f"⚠️ cvflow cron job {args[0]!r} failed: {exc}")
         raise
