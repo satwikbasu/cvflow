@@ -183,6 +183,7 @@ def _jobspy_search(
     location: str,
     results_wanted: int,
     hours_old: int,
+    job_type: str | None = None,
 ) -> list[dict[str, Any]]:
     from jobspy import scrape_jobs
 
@@ -192,6 +193,8 @@ def _jobspy_search(
         location=location,
         results_wanted=results_wanted,
         hours_old=hours_old,
+        job_type=job_type,
+        enforce_annual_salary=True,
     )
     if df is None or df.empty:
         return []
@@ -215,6 +218,9 @@ class DiscoveryService:
         top_n: int,
         throttle_seconds: float = 5.0,
         sleep: Callable[[float], None] = time.sleep,
+        exclude_title_keywords: list[str] | None = None,
+        min_ctc_lpa: int = 0,
+        job_type: str | None = None,
     ) -> None:
         self._store = store
         self._ranker = ranker
@@ -227,6 +233,9 @@ class DiscoveryService:
         self._top_n = top_n
         self._throttle_seconds = throttle_seconds
         self._sleep = sleep
+        self._exclude_title_keywords = [k.lower() for k in (exclude_title_keywords or [])]
+        self._min_ctc_lpa = min_ctc_lpa
+        self._job_type = job_type
 
     def _gather_rows(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
@@ -240,6 +249,7 @@ class DiscoveryService:
                             location=location,
                             results_wanted=self._results_wanted_per_site,
                             hours_old=self._hours_old,
+                            job_type=self._job_type,
                         )
                     )
                 except Exception as exc:  # noqa: BLE001
@@ -253,8 +263,24 @@ class DiscoveryService:
                 self._sleep(self._throttle_seconds)
         return rows
 
+    def _prefilter(self, postings: list[JobPosting]) -> list[JobPosting]:
+        kept: list[JobPosting] = []
+        for p in postings:
+            title = p.title.lower()
+            if any(k in title for k in self._exclude_title_keywords):
+                logger.info("prefilter drop (title) %s: %s", p.job_id, p.title)
+                continue
+            cap = p.max_amount if p.max_amount is not None else p.min_amount
+            # only filter on salary when stated AND in INR (else keep + let ranker flag)
+            if cap is not None and (p.currency or "INR").upper() == "INR":
+                if cap / 100_000 < self._min_ctc_lpa:
+                    logger.info("prefilter drop (salary) %s: %s", p.job_id, cap)
+                    continue
+            kept.append(p)
+        return kept
+
     def discover(self) -> list[RankedJob]:
-        postings = normalize_rows(self._gather_rows())
+        postings = self._prefilter(normalize_rows(self._gather_rows()))
         candidates = [p for p in postings if not self._store.exists(p.job_id)]
         try:
             ranked = self._ranker.rank(candidates, self._top_n)

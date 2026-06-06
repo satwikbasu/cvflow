@@ -236,3 +236,43 @@ def test_normalize_missing_salary_is_none() -> None:
     p = normalize_rows([_row("1")])[0]
     assert p.min_amount is None
     assert p.currency is None
+
+
+def test_prefilter_drops_excluded_titles_and_below_floor_salary() -> None:
+    store = ApplicationStore(":memory:")
+    ranker = _RecordingRanker()
+    rows = [
+        _row("1", title="Senior DevOps Engineer"),
+        _row("2", title="DevOps Engineer", min_amount=400000.0,
+             max_amount=500000.0, currency="INR"),
+        _row("3", title="DevOps Engineer", min_amount=800000.0,
+             max_amount=1200000.0, currency="INR"),
+        _row("4", title="Platform Engineer"),
+    ]
+    svc = DiscoveryService(
+        store=store, ranker=ranker, search_fn=lambda **k: rows,
+        search_terms=["x"], locations=["Remote"], sites=["indeed"],
+        results_wanted_per_site=10, hours_old=72, top_n=10,
+        throttle_seconds=0.0, sleep=lambda s: None,
+        exclude_title_keywords=["senior", "lead"], min_ctc_lpa=7,
+    )
+    svc.discover()
+    kept = {p.job_id for p in ranker.seen_candidates}
+    assert kept == {"linkedin:3", "linkedin:4"}
+
+
+def test_prefilter_passes_job_type_to_search_fn() -> None:
+    store = ApplicationStore(":memory:")
+    captured = {}
+
+    def search_fn(**kwargs):
+        captured.update(kwargs)
+        return []
+
+    DiscoveryService(
+        store=store, ranker=_RecordingRanker(), search_fn=search_fn,
+        search_terms=["x"], locations=["Remote"], sites=["indeed"],
+        results_wanted_per_site=10, hours_old=72, top_n=5,
+        throttle_seconds=0.0, sleep=lambda s: None, job_type="fulltime",
+    ).discover()
+    assert captured.get("job_type") == "fulltime"
