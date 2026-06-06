@@ -35,7 +35,8 @@ def test_run_job_discover_sends_digest():
         def discover(self):
             return _ranked()
 
-    run_job("discover", store=None, discovery=_Disc(), otp=None, notify=notes.append)
+    run_job("discover", store=ApplicationStore(":memory:"), discovery=_Disc(),
+            otp=None, notify=notes.append)
     assert notes and "https://jobs/7" in notes[0]
 
 
@@ -105,3 +106,22 @@ def test_format_digest_shows_fit_score_and_concerns():
     assert "88" in text
     assert "salary not stated" in text
     assert "Unknown company" in text
+
+
+def test_run_job_discover_persists_digest_slots():
+    from cvflow.cron import run_job
+    from cvflow.discovery import JobPosting, RankedJob
+    from cvflow.storage import ApplicationStore
+    store = ApplicationStore(":memory:")
+
+    def _rj(jid):
+        p = JobPosting(job_id=jid, title="T", company="C", location="L",
+                       description="d", url=f"https://{jid}", site="indeed", date_posted="x")
+        return RankedJob(posting=p, summary="s", rationale="r")
+
+    class _Disc:
+        def discover(self):
+            return [_rj("indeed:a"), _rj("indeed:b")]
+
+    run_job("discover", store=store, discovery=_Disc(), otp=None, notify=lambda m: None)
+    assert store.digest_slots() == ["indeed:a", "indeed:b"]

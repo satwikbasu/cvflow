@@ -28,13 +28,16 @@ def format_digest(ranked: list[Any]) -> str:
             f"{concerns}"
             f"  /apply {p.job_id} | /skip {p.job_id}\n"
         )
+    parts.append("Reply: /apply 1 2 4  •  /skip 3  •  /apply all")
     return "\n".join(parts)
 
 
 def run_job(job: str, *, store: Any, discovery: Any, otp: Any, notify: Any) -> None:
     """Dispatch one scheduled job. Pure of config/network — deps are injected."""
     if job == "discover":
-        notify(format_digest(discovery.discover()))
+        ranked = discovery.discover()
+        store.set_digest_slots([rj.posting.job_id for rj in ranked])
+        notify(format_digest(ranked))
     elif job == "sweep-otp":
         otp.expire_overdue()
     elif job == "heartbeat":
