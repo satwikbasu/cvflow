@@ -43,6 +43,7 @@ def resolve_targets(args: str, store: ApplicationStore) -> tuple[list[str], list
     resolved: list[str] = []
     unknown: list[str] = []
     seen: set[str] = set()
+    jid: str | None
 
     def _add(job_id: str) -> None:
         if job_id and job_id not in seen:
@@ -67,7 +68,7 @@ def resolve_targets(args: str, store: ApplicationStore) -> tuple[list[str], list
                     unknown.append(str(n))
         elif token.isdigit():
             jid = store.get_digest_slot(int(token))
-            if jid:
+            if jid is not None:
                 _add(jid)
             else:
                 unknown.append(token)
