@@ -17,12 +17,15 @@ def format_digest(ranked: list[Any]) -> str:
     if not ranked:
         return "No new jobs today."
     parts = ["🗞️ cvflow — new jobs today:\n"]
-    for rj in ranked:
+    for i, rj in enumerate(ranked, start=1):
         p = rj.posting
+        company = p.company or "Unknown company"
+        concerns = f"  ⚠️ {'; '.join(rj.concerns)}\n" if rj.concerns else ""
         parts.append(
-            f"• {p.title} @ {p.company}\n"
+            f"{i}. {p.title} @ {company}  (fit {rj.fit_score})\n"
             f"  {p.url}\n"
             f"  {rj.rationale}\n"
+            f"{concerns}"
             f"  /apply {p.job_id} | /skip {p.job_id}\n"
         )
     return "\n".join(parts)

@@ -92,3 +92,16 @@ def test_main_notifies_on_job_failure():
     with pytest.raises(RuntimeError):
         main(["discover"], services=(None, _Disc(), None, notes.append))
     assert any("failed" in n for n in notes)
+
+
+def test_format_digest_shows_fit_score_and_concerns():
+    from cvflow.cron import format_digest
+    from cvflow.discovery import JobPosting, RankedJob
+    p = JobPosting(job_id="indeed:7", title="DevOps", company="", location="Remote",
+                   description="d", url="https://jobs/7", site="indeed", date_posted="x")
+    rj = RankedJob(posting=p, summary="s", rationale="infra fit", fit_score=88,
+                   concerns=["salary not stated"])
+    text = format_digest([rj])
+    assert "88" in text
+    assert "salary not stated" in text
+    assert "Unknown company" in text
