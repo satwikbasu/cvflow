@@ -28,6 +28,7 @@ __all__ = [
     "LLMRanker",
     "DiscoveryService",
     "normalize_rows",
+    "format_preferences",
 ]
 
 logger = logging.getLogger("cvflow.discovery")
@@ -109,6 +110,23 @@ def normalize_rows(rows: list[dict[str, Any]]) -> list[JobPosting]:
             )
         )
     return out
+
+
+def format_preferences(prefs: Any) -> str:
+    """Render the structured PreferencesConfig into prompt text for the ranker."""
+    return (
+        f"- Candidate has {prefs.yoe_have} year(s) experience; only roles whose required "
+        f"experience includes {prefs.yoe_have} or are fresher/entry-level.\n"
+        f"- Minimum acceptable CTC: {prefs.min_ctc_lpa} LPA (jobs without stated pay are kept "
+        f"but flagged).\n"
+        f"- Exclude titles containing: {', '.join(prefs.exclude_title_keywords)}.\n"
+        f"- Exclude internships/contract (full-time only).\n"
+        f"- {'Exclude' if prefs.exclude_night_shift_only else 'Allow'} "
+        "night-shift/on-call-only roles.\n"
+        f"- {'Avoid' if prefs.exclude_app_maintenance else 'Allow'} "
+        "pure long-term app-maintenance roles.\n"
+        f"- {'Prefer product-based companies.' if prefs.prefer_product_companies else ''}"
+    )
 
 
 def _strip_code_fence(text: str) -> str:

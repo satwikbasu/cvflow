@@ -241,7 +241,7 @@ def build_tools(config: Any) -> CvflowTools:
     tailor = ResumeTailor(tailoring, parse_master(master_root))
 
     from cvflow.analysis import JDAnalyzer
-    from cvflow.discovery import DiscoveryService, LLMRanker
+    from cvflow.discovery import DiscoveryService, LLMRanker, format_preferences
     from cvflow.llm import NimProvider
 
     brain = NimProvider(
@@ -250,7 +250,9 @@ def build_tools(config: Any) -> CvflowTools:
         model=config.llm.brain.model,
         max_requests_per_minute=config.llm.brain.max_requests_per_minute,
     )
-    ranker = LLMRanker(brain, knowledge.full_context())
+    ranker = LLMRanker(
+        brain, knowledge.full_context(), preferences=format_preferences(config.preferences)
+    )
     discovery = DiscoveryService(
         store,
         ranker,
@@ -260,6 +262,9 @@ def build_tools(config: Any) -> CvflowTools:
         results_wanted_per_site=config.discovery.results_wanted_per_site,
         hours_old=config.discovery.hours_old,
         top_n=config.discovery.top_n_to_present,
+        exclude_title_keywords=config.preferences.exclude_title_keywords,
+        min_ctc_lpa=config.preferences.min_ctc_lpa,
+        job_type=config.preferences.job_type,
     )
     analyzer = JDAnalyzer(brain)
 

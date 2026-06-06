@@ -44,7 +44,7 @@ def run_job(job: str, *, store: Any, discovery: Any, otp: Any, notify: Any) -> N
 def _build(config: Any) -> tuple[Any, Any, Any, Any]:
     """Construct the minimal services for the cron jobs (NO browser/Automator)."""
     from cvflow.auth import OtpCoordinator
-    from cvflow.discovery import DiscoveryService, LLMRanker
+    from cvflow.discovery import DiscoveryService, LLMRanker, format_preferences
     from cvflow.knowledge import KnowledgeBase
     from cvflow.llm import NimProvider
     from cvflow.notify import HermesNotifier
@@ -62,13 +62,18 @@ def _build(config: Any) -> tuple[Any, Any, Any, Any]:
     )
     discovery = DiscoveryService(
         store,
-        LLMRanker(brain, knowledge.full_context()),
+        LLMRanker(
+            brain, knowledge.full_context(), preferences=format_preferences(config.preferences)
+        ),
         search_terms=config.discovery.search_terms,
         locations=config.discovery.locations,
         sites=config.discovery.sites,
         results_wanted_per_site=config.discovery.results_wanted_per_site,
         hours_old=config.discovery.hours_old,
         top_n=config.discovery.top_n_to_present,
+        exclude_title_keywords=config.preferences.exclude_title_keywords,
+        min_ctc_lpa=config.preferences.min_ctc_lpa,
+        job_type=config.preferences.job_type,
     )
     notify = HermesNotifier()
     otp = OtpCoordinator(

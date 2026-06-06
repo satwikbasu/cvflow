@@ -123,22 +123,63 @@ def test_malformed_time_raises(tmp_path: Path) -> None:
 def test_preferences_block_parsed(tmp_path):
     from cvflow.config import load_config
     cfg_text = (tmp_path / "config.yaml")
-    base = (
-        "telegram:\n  bot_token: x\n  authorized_user_id: 1\n"
-        "schedule:\n  daily_discovery_time: '08:00'\n  timezone: UTC\n  heartbeat_interval_minutes: 30\n"
-        "discovery:\n  search_terms: [a]\n  locations: [Remote]\n  sites: [indeed]\n"
-        "  results_wanted_per_site: 5\n  hours_old: 72\n  top_n_to_present: 5\n"
-        "preferences:\n  yoe_have: 1\n  min_ctc_lpa: 7\n  job_type: fulltime\n"
-        "  exclude_title_keywords: [senior, lead]\n  prefer_product_companies: true\n"
-        "  exclude_app_maintenance: true\n  exclude_night_shift_only: true\n"
-        "llm:\n  brain:\n    provider: nvidia\n    api_key: k\n    base_url: u\n    model: m\n    max_requests_per_minute: 40\n"
-        "  tailoring:\n    provider: google\n    api_key: k\n    model: m\n    max_requests_per_day: 50\n"
-        "resume:\n  master_tex_path: resume/master.tex\n  output_dir: data/tailored\n  latex_compiler: tectonic\n"
-        "automation:\n  headless: true\n  use_stealth: true\n  storage_state_dir: data/bw\n  form_timeout_minutes: 30\n"
-        "auth:\n  google_account_email: a@b.c\n  application_email: a@b.c\n  otp_timeout_minutes: 15\n"
-        "storage:\n  db_path: data/db.sqlite\n  form_fields_path: profile/form_fields.json\n"
-        "security:\n  fernet_key_path: data/.k\n"
-        "profile:\n  knowledge_base_dir: profile\n"
+    base = textwrap.dedent(
+        """
+        telegram:
+          bot_token: x
+          authorized_user_id: 1
+        schedule:
+          daily_discovery_time: '08:00'
+          timezone: UTC
+          heartbeat_interval_minutes: 30
+        discovery:
+          search_terms: [a]
+          locations: [Remote]
+          sites: [indeed]
+          results_wanted_per_site: 5
+          hours_old: 72
+          top_n_to_present: 5
+        preferences:
+          yoe_have: 1
+          min_ctc_lpa: 7
+          job_type: fulltime
+          exclude_title_keywords: [senior, lead]
+          prefer_product_companies: true
+          exclude_app_maintenance: true
+          exclude_night_shift_only: true
+        llm:
+          brain:
+            provider: nvidia
+            api_key: k
+            base_url: u
+            model: m
+            max_requests_per_minute: 40
+          tailoring:
+            provider: google
+            api_key: k
+            model: m
+            max_requests_per_day: 50
+        resume:
+          master_tex_path: resume/master.tex
+          output_dir: data/tailored
+          latex_compiler: tectonic
+        automation:
+          headless: true
+          use_stealth: true
+          storage_state_dir: data/bw
+          form_timeout_minutes: 30
+        auth:
+          google_account_email: a@b.c
+          application_email: a@b.c
+          otp_timeout_minutes: 15
+        storage:
+          db_path: data/db.sqlite
+          form_fields_path: profile/form_fields.json
+        security:
+          fernet_key_path: data/.k
+        profile:
+          knowledge_base_dir: profile
+        """
     )
     cfg_text.write_text(base)
     cfg = load_config(cfg_text)
