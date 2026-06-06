@@ -37,18 +37,37 @@ One NIM call PER COHORT (M and N), each carrying the whole cohort's cruxes → c
 `concern_codes` is a fixed enum (no prose): `STACK_MISMATCH, SERVICE_COMPANY, SENIORITY_BORDERLINE,
 ROLE_ADJACENT`. Code adds its own deterministic concerns later (`PAY_UNKNOWN, YOE_UNKNOWN`).
 
-### Fit rubric (in the fixed prompt — numeric anchors for reproducibility)
+### Fit rubric — role-agnostic, driven by a config `prefer_roles` map (#3)
+
+The rubric is NOT hardcoded to DevOps. A config map of role-family → weight (0..1) is **rendered into
+the prompt** at runtime, so the same engine works for any target role by editing config alone:
+
+```yaml
+preferences:
+  prefer_roles:            # role_family -> weight 0..1 (rendered into the fit prompt)
+    devops: 1.0
+    sre: 1.0
+    platform: 1.0
+    infra: 1.0
+    backend: 0.8
+    fullstack: 0.5
+    frontend: 0.3
+    data: 0.4
+    # families omitted default to 0.2
 ```
-90-100 : direct match — role_family in {devops,sre,platform,infra,backend} AND stack overlaps
-         the candidate's core tools AND seniority is fresher/junior/mid.
-70-89  : adjacent — right family but partial stack overlap, or generalist SWE with infra stack.
-40-69  : weak — frontend/data/other family, or little stack overlap.
-0-39   : poor — unrelated role or stack.
+
+Prompt rubric (anchors fixed; the preferred-families line is generated from `prefer_roles`):
+```
+You are scoring job FIT for a candidate. Preferred role families (weight): {rendered from prefer_roles}.
+90-100 : role_family weight >= 0.8 AND stack overlaps the candidate's core tools AND seniority fresher/junior/mid.
+70-89  : weight >= 0.5, or right family with partial stack overlap.
+40-69  : weight 0.2-0.5, or little stack overlap.
+0-39   : weight < 0.2 or unrelated stack.
 Modifiers: -10 company_type service/staffing (candidate prefers product);
-           +5 modern infra stack (docker/k8s/ci-cd/cloud) present;
-           -10 app/maintenance-flavoured but not a hard exclude.
+           +5 modern infra stack (docker/k8s/ci-cd/cloud) present.
 Output the integer after modifiers, clamped 0-100. Cite the driver in fit_reason.
 ```
+(`prefer_product_companies` toggle controls whether the service/staffing modifier is applied.)
 
 ### NIM call settings (probed live — all accepted)
 ```
@@ -72,10 +91,12 @@ There is **no location score** — the engine is India-focused (see header + §8
 ## 4. Benchmark formulas
 
 ```
-M (stated INR salary):  Benchmark = round(100 * (0.70*Fit/100 + 0.30*C))
+M (stated INR salary):  Benchmark = round(100 * (fit_weight*Fit/100 + comp_weight*C))
 N (no INR salary):      Benchmark = Fit            # i.e. round(100 * Fit/100)
 ```
-Weights are module constants (tunable; candidates for config later). Worked examples:
+**Weights are config (#2)** — `preferences.fit_weight` (default 0.70) + `preferences.comp_weight`
+(default 0.30); they must sum to 1.0 (validated on load). Different users weigh pay vs fit differently;
+this is a one-line config change. Worked examples (at the 0.70/0.30 default):
 
 | Job | Fit | C | M-score | N-score |
 |---|---|---|---|---|
@@ -120,9 +141,11 @@ Reply: /apply 1 2 4  •  /skip 3  •  /apply all
 ## 6. Module shape
 
 `src/cvflow/discovery/benchmark.py`:
-- constants: `W_FIT_M=0.70`, `W_COMP_M=0.30`, `MIN_CTC_LPA=7`, `TOP_CTC_LPA=40`.
-- `comp_score(job) -> float` (INR only; clamp).
-- `fit_scores(cruxes, fingerprint, provider) -> dict[job_id, FitResult]` (one NIM call; isolates failure).
+- config-driven: `fit_weight`/`comp_weight` (#2), `min_ctc_lpa`/`top_ctc_lpa`, `prefer_roles` (#3) all
+  read from `PreferencesConfig`. No scoring weights remain hardcoded.
+- `comp_score(job, min_lpa, top_lpa) -> float` (INR only; clamp).
+- `fit_scores(cruxes, fingerprint, prefer_roles, provider) -> dict[job_id, FitResult]` (one NIM call;
+  renders `prefer_roles` into the prompt; isolates failure).
 - `benchmark_cohort(jobs, cruxes, fits, cohort: "M"|"N") -> list[BenchmarkedJob]` (sorted).
 - `BenchmarkedJob(posting, crux, benchmark, fit_score, fit_reason, concerns, cohort, ctc_lpa?)`.
 
@@ -146,10 +169,11 @@ additive; existing callers unaffected.
 - `comp_score`: INR floor (7 LPA)→0, top (40 LPA)→1, mid (~23 LPA)→~0.48, below floor clamps to 0.
 - `benchmark_cohort` M vs N: the worked-example rows produce the tabulated scores; sorted desc.
 - `fit_scores`: parses the json_object array, drops unknown job_ids, fills concern_codes; one bad call
-  → degraded fallback (no crash).
+  → degraded fallback (no crash); the prompt contains the rendered `prefer_roles` weights.
 - digest: two sections, continuous numbering, `digest_slots` set over the combined order; empty section
   omitted; `/apply 2` resolves to the 2nd combined row.
 - NIM call carries `temperature=0, seed, response_format=json_object` (assert on a fake post_fn).
+- config: `fit_weight + comp_weight != 1.0` raises `ConfigError`; `prefer_roles` weights parsed.
 
 ## 8. Deferred: foreign-reach (NOT built now)
 
@@ -168,5 +192,14 @@ discovery:
   top_n_per_cohort: 5         # surface up to N from each of M and N
 preferences:
   top_ctc_lpa: 40            # comp-score upper anchor (C=1.0)
+  fit_weight: 0.70           # #2 — M-benchmark fit weight  (fit_weight+comp_weight must == 1.0)
+  comp_weight: 0.30          # #2 — M-benchmark comp weight
+  prefer_roles:              # #3 — role_family -> weight 0..1 (rendered into the fit prompt)
+    devops: 1.0
+    sre: 1.0
+    platform: 1.0
+    infra: 1.0
+    backend: 0.8
+    frontend: 0.3
 ```
-Benchmark weights start as module constants (YAGNI; promote to config only if tuning demands).
+All scoring knobs are now config — the engine is role-agnostic and reweightable without code edits.

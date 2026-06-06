@@ -86,14 +86,29 @@ Order: cheap/title gates first (pre-distill), crux-derived gates after distillat
   fall into N, so no FX conversion is ever needed.)
 - **Naukri YOE (when `experience_range` present)**: parse min years; if `> YOE_CEILING` → drop.
 
-**Post-distill (on crux, 14B):**
-- **YOE gate**: `crux.min_years_required != null and > YOE_CEILING` → drop. `null` → keep + concern `YOE_UNKNOWN`.
-- **night_shift_only == true** → drop.
-- **app_maintenance_focus == true** → drop.
-- **red_flags ∩ {unpaid, commission_only, scam}** → drop.
+**Post-distill (on crux) — DECLARATIVE rule list `preferences.exclude_when` (not hardcoded booleans):**
 
-`YOE_CEILING = preferences.yoe_have + YOE_BUFFER`. Defaults: `yoe_have=1`, `YOE_BUFFER=2` → ceiling 3
-(entry roles commonly say "0-3"). Both surfaced in config (`preferences.yoe_buffer`).
+Instead of one Python `if` per deal-breaker, exclusions are a config-driven list of rules evaluated
+against crux fields. A job is dropped if it matches ANY rule. This makes adding/removing a filter a
+config edit — no code change (the key generalization for reuse beyond a single user).
+
+```yaml
+preferences:
+  exclude_when:
+    - {field: night_shift_only,      equals: true}
+    - {field: app_maintenance_focus, equals: true}
+    - {field: min_years_required,    greater_than: 3}     # > YOE ceiling
+    - {field: red_flags,             contains_any: [unpaid, commission_only, scam]}
+```
+
+Supported operators (small fixed set, in code): `equals`, `greater_than`, `less_than`, `contains_any`.
+A rule whose `field` is **null/unknown on the crux does NOT match** (we never drop on absent facts —
+invariant 2; e.g. `min_years_required: null` → kept + concern `YOE_UNKNOWN`). The operator set and the
+evaluator are code; the *rules* are config. `YOE_CEILING` is expressed directly as the `greater_than`
+value, derived from `yoe_have + yoe_buffer` if the user prefers (default ceiling 3; entry roles say "0-3").
+
+Title exclusion (`exclude_title_keywords`) and the M salary floor (`min_ctc_lpa`) stay as their own
+config knobs (they act on `JobPosting`, pre-distill, not on crux fields).
 
 **Never silent (invariant 3):** every deterministic drop is logged at INFO with job_id + reason
 (already the pattern in Phase 13A `_prefilter`). Counts summarized in the cron log.
@@ -121,7 +136,12 @@ distills/day << 1400 RPD. Cached cruxes (14B) make re-runs near-free. Log how ma
 
 ```yaml
 preferences:
-  yoe_buffer: 2            # YOE_CEILING = yoe_have + yoe_buffer
+  yoe_buffer: 2            # ceiling = yoe_have + yoe_buffer (used as a greater_than value)
+  exclude_when:            # declarative crux-field exclusion rules (see §5)
+    - {field: night_shift_only,      equals: true}
+    - {field: app_maintenance_focus, equals: true}
+    - {field: min_years_required,    greater_than: 3}
+    - {field: red_flags,             contains_any: [unpaid, commission_only, scam]}
 discovery:
   sites: ["linkedin", "indeed", "google", "naukri"]
   country_indeed: "india"
