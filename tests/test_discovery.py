@@ -216,3 +216,23 @@ def test_discover_falls_back_to_unranked_when_ranking_fails() -> None:
     assert {rj.posting.job_id for rj in ranked} == {"linkedin:1", "linkedin:2"}
     assert all(rj.rationale == "(ranking unavailable)" for rj in ranked)
     assert store.exists("linkedin:1")  # still persisted as discovered
+
+
+def test_normalize_cleans_nan_and_carries_salary() -> None:
+    rows = [{
+        "id": "1", "site": "indeed", "title": "Backend", "company": float("nan"),
+        "location": "Remote", "description": "d", "job_url": "https://x/1",
+        "date_posted": "2026-06-02", "min_amount": 800000.0, "max_amount": 1200000.0,
+        "currency": "INR",
+    }]
+    p = normalize_rows(rows)[0]
+    assert p.company == ""
+    assert p.min_amount == 800000.0
+    assert p.max_amount == 1200000.0
+    assert p.currency == "INR"
+
+
+def test_normalize_missing_salary_is_none() -> None:
+    p = normalize_rows([_row("1")])[0]
+    assert p.min_amount is None
+    assert p.currency is None

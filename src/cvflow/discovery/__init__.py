@@ -19,7 +19,7 @@ import json
 import logging
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 __all__ = [
@@ -43,6 +43,9 @@ class JobPosting:
     url: str
     site: str
     date_posted: str
+    min_amount: float | None = None
+    max_amount: float | None = None
+    currency: str | None = None
 
 
 @dataclass(frozen=True)
@@ -50,6 +53,8 @@ class RankedJob:
     posting: JobPosting
     summary: str
     rationale: str
+    fit_score: int = 0
+    concerns: list[str] = field(default_factory=list)
 
 
 def _stable_job_id(site: str, raw_id: str, url: str) -> str:
@@ -57,6 +62,22 @@ def _stable_job_id(site: str, raw_id: str, url: str) -> str:
         return f"{site}:{raw_id}"
     digest = hashlib.sha1(url.encode()).hexdigest()[:12]
     return f"{site}:{digest}"
+
+
+def _clean(value: Any) -> str:
+    """Stringify a JobSpy cell, mapping NaN/None/'nan' to ''."""
+    if value is None:
+        return ""
+    text = str(value).strip()
+    return "" if text.lower() == "nan" else text
+
+
+def _num(value: Any) -> float | None:
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return None if f != f else f  # NaN check
 
 
 def normalize_rows(rows: list[dict[str, Any]]) -> list[JobPosting]:
@@ -75,13 +96,16 @@ def normalize_rows(rows: list[dict[str, Any]]) -> list[JobPosting]:
         out.append(
             JobPosting(
                 job_id=job_id,
-                title=str(row.get("title") or ""),
-                company=str(row.get("company") or ""),
-                location=str(row.get("location") or ""),
-                description=str(row.get("description") or ""),
+                title=_clean(row.get("title")),
+                company=_clean(row.get("company")),
+                location=_clean(row.get("location")),
+                description=_clean(row.get("description")),
                 url=url,
                 site=site,
-                date_posted=str(row.get("date_posted") or ""),
+                date_posted=_clean(row.get("date_posted")),
+                min_amount=_num(row.get("min_amount")),
+                max_amount=_num(row.get("max_amount")),
+                currency=_clean(row.get("currency")) or None,
             )
         )
     return out
