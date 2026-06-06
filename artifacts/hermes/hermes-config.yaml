@@ -8,8 +8,9 @@ mcp_servers:
     args: ["-m", "cvflow.mcp"]
     cwd: /home/ubuntu/cvflow
     tools:
-      include: [ping, discover, analyze_jd, list_applications, get_application, 
-            request_review, submit]
+      include: [ping, discover, analyze_jd, list_applications, get_application,
+            request_review, submit, compose_essay, status_report,
+            fill_application, resume_application, submit_otp]
 providers: {}
 fallback_providers: []
 credential_pool_strategies: {}

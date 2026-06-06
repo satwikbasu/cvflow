@@ -110,21 +110,29 @@ class SessionManager:
                  use_stealth: bool = True) -> None:
         from pathlib import Path
 
-        from playwright.sync_api import sync_playwright
-
         self._root = Path(user_data_root)
         self._root.mkdir(parents=True, exist_ok=True)
         self._headless = headless
         self._args = (
             ["--disable-blink-features=AutomationControlled"] if use_stealth else []
         )
-        self._pw = sync_playwright().start()
+        # Playwright is started LAZILY on first open(): sync_playwright().start()
+        # sets up an asyncio loop, which must NOT happen at MCP-server import/startup
+        # (FastMCP runs its own stdio asyncio loop). Constructing this manager is cheap.
+        self._pw: Any = None
         self._contexts: dict[str, Any] = {}
         self._pages: dict[str, Any] = {}
 
+    def _ensure_started(self) -> Any:
+        if self._pw is None:
+            from playwright.sync_api import sync_playwright
+
+            self._pw = sync_playwright().start()
+        return self._pw
+
     def open(self, job_id: str, url: str) -> Any:
         if job_id not in self._contexts:
-            ctx = self._pw.chromium.launch_persistent_context(
+            ctx = self._ensure_started().chromium.launch_persistent_context(
                 user_data_dir=str(self._root / job_id),
                 headless=self._headless,
                 args=self._args,
@@ -146,7 +154,9 @@ class SessionManager:
     def close_all(self) -> None:
         for job_id in list(self._contexts):
             self.close(job_id)
-        self._pw.stop()
+        if self._pw is not None:
+            self._pw.stop()
+            self._pw = None
 
 
 class FormFiller:
