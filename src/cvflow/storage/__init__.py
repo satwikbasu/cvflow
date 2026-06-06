@@ -83,6 +83,11 @@ CREATE TABLE IF NOT EXISTS jd_analyses (
     job_id    TEXT PRIMARY KEY REFERENCES applications(job_id),
     analysis  TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS digest_slots (
+    slot         INTEGER PRIMARY KEY,
+    job_id       TEXT NOT NULL,
+    presented_at TEXT NOT NULL
+);
 """
 
 
@@ -239,6 +244,27 @@ class ApplicationStore:
             "SELECT * FROM applications WHERE otp_deadline IS NOT NULL ORDER BY discovered_at"
         ).fetchall()
         return [self._row_to_app(r) for r in rows]
+
+    def set_digest_slots(self, job_ids: list[str]) -> None:
+        """Replace the presented-digest ordinal→job_id map (slot 1..N)."""
+        with self._conn:
+            self._conn.execute("DELETE FROM digest_slots")
+            self._conn.executemany(
+                "INSERT INTO digest_slots (slot, job_id, presented_at) VALUES (?, ?, ?)",
+                [(i, jid, _now()) for i, jid in enumerate(job_ids, start=1)],
+            )
+
+    def get_digest_slot(self, slot: int) -> str | None:
+        row = self._conn.execute(
+            "SELECT job_id FROM digest_slots WHERE slot = ?", (slot,)
+        ).fetchone()
+        return row["job_id"] if row is not None else None
+
+    def digest_slots(self) -> list[str]:
+        rows = self._conn.execute(
+            "SELECT job_id FROM digest_slots ORDER BY slot"
+        ).fetchall()
+        return [r["job_id"] for r in rows]
 
     def save_analysis(self, job_id: str, analysis: JDAnalysis) -> None:
         """Persist the JD analysis linked to an existing application record."""

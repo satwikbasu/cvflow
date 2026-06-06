@@ -216,3 +216,16 @@ def test_migration_adds_missing_columns_to_old_db(tmp_path):
     # and the new setters work on the migrated DB
     store.set_otp_deadline("indeed:1", "2026-06-05T10:00:00+00:00")
     assert store.get("indeed:1").otp_deadline == "2026-06-05T10:00:00+00:00"
+
+
+def test_digest_slots_roundtrip_and_replace():
+    from cvflow.storage import ApplicationStore
+    s = ApplicationStore(":memory:")
+    s.set_digest_slots(["indeed:a", "indeed:b", "indeed:c"])
+    assert s.get_digest_slot(1) == "indeed:a"
+    assert s.get_digest_slot(3) == "indeed:c"
+    assert s.get_digest_slot(9) is None
+    assert s.digest_slots() == ["indeed:a", "indeed:b", "indeed:c"]
+    s.set_digest_slots(["indeed:x"])
+    assert s.get_digest_slot(1) == "indeed:x"
+    assert s.get_digest_slot(2) is None
