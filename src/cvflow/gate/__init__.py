@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from cvflow.statemachine import IllegalTransition, Status
 from cvflow.storage import ApplicationStore, UnknownJob
 
-__all__ = ["GateResult", "handle_gate_command"]
+__all__ = ["GateResult", "handle_gate_command", "resolve_targets"]
 
 
 @dataclass(frozen=True)
@@ -30,6 +30,50 @@ class GateResult:
 
 def _same_user(a: object, b: object) -> bool:
     return str(a).strip() == str(b).strip()
+
+
+def resolve_targets(args: str, store: ApplicationStore) -> tuple[list[str], list[str]]:
+    """Resolve an apply/skip argument string into job_ids.
+
+    Accepts ordinals (1 2), comma lists (1,2), ranges (1-3), 'all', and raw
+    job_ids (containing ':'). Returns (resolved_job_ids_in_order, unrecognized_tokens),
+    de-duplicated, order preserved.
+    """
+    text = args.strip().lower()
+    resolved: list[str] = []
+    unknown: list[str] = []
+    seen: set[str] = set()
+
+    def _add(job_id: str) -> None:
+        if job_id and job_id not in seen:
+            seen.add(job_id)
+            resolved.append(job_id)
+
+    if text == "all":
+        for jid in store.digest_slots():
+            _add(jid)
+        return resolved, unknown
+
+    for token in text.replace(",", " ").split():
+        if ":" in token:  # raw job_id
+            _add(token)
+        elif "-" in token and all(part.isdigit() for part in token.split("-", 1)):
+            lo, hi = (int(x) for x in token.split("-", 1))
+            for n in range(lo, hi + 1):
+                jid = store.get_digest_slot(n)
+                if jid:
+                    _add(jid)
+                else:
+                    unknown.append(str(n))
+        elif token.isdigit():
+            jid = store.get_digest_slot(int(token))
+            if jid:
+                _add(jid)
+            else:
+                unknown.append(token)
+        else:
+            unknown.append(token)
+    return resolved, unknown
 
 
 def handle_gate_command(

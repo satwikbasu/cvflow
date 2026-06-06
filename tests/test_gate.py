@@ -63,3 +63,18 @@ def test_user_id_compared_as_string_or_int():
                               authorized_user_id=USER, store=store)
     assert res.handled is True
     assert store.get("j1").status is Status.APPROVED
+
+
+def test_resolve_targets_ordinals_ranges_all_and_raw():
+    from cvflow.gate import resolve_targets
+    from cvflow.storage import ApplicationStore
+    s = ApplicationStore(":memory:")
+    s.set_digest_slots(["indeed:a", "indeed:b", "indeed:c"])
+
+    assert resolve_targets("1 2", s) == (["indeed:a", "indeed:b"], [])
+    assert resolve_targets("1,3", s) == (["indeed:a", "indeed:c"], [])
+    assert resolve_targets("1-3", s) == (["indeed:a", "indeed:b", "indeed:c"], [])
+    assert resolve_targets("all", s) == (["indeed:a", "indeed:b", "indeed:c"], [])
+    assert resolve_targets("indeed:z", s) == (["indeed:z"], [])
+    assert resolve_targets("2 9", s) == (["indeed:b"], ["9"])
+    assert resolve_targets("1 1", s) == (["indeed:a"], [])
