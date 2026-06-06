@@ -92,33 +92,37 @@ def handle_gate_command(
     if not _same_user(user_id, authorized_user_id):
         return GateResult(handled=False, message=None)
 
-    job_id = args.strip().split()[0] if args.strip() else ""
-    if not job_id:
-        return GateResult(handled=True, message=f"⚠️ Usage: /{command} <job_id>")
+    if command not in ("apply", "skip"):
+        return GateResult(handled=False, message=None)
+    if not args.strip():
+        return GateResult(handled=True, message=f"⚠️ Usage: /{command} <number(s)|all>")
 
-    if command == "apply":
+    targets, unknown = resolve_targets(args, store)
+    if not targets and not unknown:
+        return GateResult(handled=True, message=f"⚠️ Usage: /{command} <number(s)|all>")
+
+    ok: list[str] = []
+    problems: list[str] = []
+    for job_id in targets:
         try:
-            store.approve(job_id)
+            if command == "apply":
+                store.approve(job_id)
+            else:
+                store.set_status(job_id, Status.SKIPPED)
+            ok.append(job_id)
         except UnknownJob:
-            return GateResult(handled=True, message=f"⚠️ No application {job_id}.")
+            problems.append(f"{job_id} (no such job)")
         except IllegalTransition:
             app = store.get(job_id)
             status = app.status.value if app else "unknown"
-            return GateResult(
-                handled=True,
-                message=f"⚠️ Can't approve {job_id}: it is {status}, not pending review.",
-            )
-        return GateResult(handled=True, message=f"✅ Approved {job_id} — submitting.")
+            problems.append(f"{job_id} ({status})")
 
-    if command == "skip":
-        try:
-            store.set_status(job_id, Status.SKIPPED)
-        except UnknownJob:
-            return GateResult(handled=True, message=f"⚠️ No application {job_id}.")
-        except IllegalTransition:
-            app = store.get(job_id)
-            status = app.status.value if app else "unknown"
-            return GateResult(handled=True, message=f"⚠️ Can't skip {job_id}: it is {status}.")
-        return GateResult(handled=True, message=f"⏭️ Skipped {job_id}.")
-
-    return GateResult(handled=False, message=None)
+    verb = "✅ Approved" if command == "apply" else "⏭️ Skipped"
+    lines = []
+    if ok:
+        lines.append(f"{verb}: {', '.join(ok)}" + (" — submitting." if command == "apply" else "."))
+    if problems:
+        lines.append("⚠️ couldn't " + command + ": " + "; ".join(problems))
+    if unknown:
+        lines.append("⚠️ unknown: " + ", ".join(unknown))
+    return GateResult(handled=True, message="\n".join(lines))
