@@ -46,13 +46,16 @@ cp artifacts/hermes/scripts/cvflow-*.sh ~/.hermes/scripts/ && chmod +x ~/.hermes
 hermes cron create '0 8 * * *'  --no-agent --script cvflow-discover.sh  --name cvflow-discover
 hermes cron create 'every 5m'   --no-agent --script cvflow-sweep-otp.sh --name cvflow-sweep-otp
 hermes cron create 'every 30m'  --no-agent --script cvflow-heartbeat.sh --name cvflow-heartbeat
+hermes cron create 'every 168h' --no-agent --script cvflow-learn.sh     --name cvflow-learn
 hermes cron list
 ```
 - `0 8 * * *` = daily 08:00 (`schedule.daily_discovery_time`); `every 30m` ↔
   `schedule.heartbeat_interval_minutes`.
 - **`cvflow-sweep-otp` (every 5 min) enforces OTP timeouts** (`OtpCoordinator.expire_overdue`) —
   this is what makes the Phase-10 OTP timeout actually fire while idle.
-- `cvflow-discover` posts the daily digest (each job with its URL + `/apply <id>` / `/skip <id>`).
+- `cvflow-discover` posts the daily digest (numbered; reply `/apply 1 2 4` / `/skip 3` / `/apply all`).
+- **`cvflow-learn` (weekly) proposes preference edits** from apply/skip history — it only suggests;
+  the user applies them by editing `profile/preferences.md` (never auto-applied, like the gate).
 
 Manual run of any job: `cd /home/ubuntu/cvflow && .venv/bin/python -m cvflow.cron heartbeat`.
 
