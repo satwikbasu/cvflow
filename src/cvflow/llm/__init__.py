@@ -99,7 +99,9 @@ def _urllib_post(url: str, headers: dict[str, str], body: str) -> str:
     from urllib.request import Request, urlopen
 
     req = Request(url, data=body.encode(), headers=headers, method="POST")
-    with urlopen(req, timeout=60) as resp:  # noqa: S310 (https by config)
+    # NIM free-tier latency can swing past a minute; give the call room. The cron
+    # path has no 120s agent limit, and the RPM budget still guards call volume.
+    with urlopen(req, timeout=180) as resp:  # noqa: S310 (https by config)
         if resp.status != 200:
             raise LLMError(f"NIM POST {url} -> HTTP {resp.status}")
         raw: bytes = resp.read()

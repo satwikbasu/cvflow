@@ -201,3 +201,18 @@ def test_discover_survives_a_failing_search_batch() -> None:
     )
     ranked = svc.discover()
     assert [rj.posting.job_id for rj in ranked] == ["indeed:2"]  # good batch survived
+
+
+def test_discover_falls_back_to_unranked_when_ranking_fails() -> None:
+    """If the ranking LLM errors, present unranked candidates (never lose the digest)."""
+    store = ApplicationStore(":memory:")
+
+    class _BrokenRanker:
+        def rank(self, postings: list[JobPosting], top_n: int) -> list[RankedJob]:
+            raise RuntimeError("NIM read timeout")
+
+    svc, _, _ = _service(store, _BrokenRanker(), [_row("1"), _row("2")])
+    ranked = svc.discover()
+    assert {rj.posting.job_id for rj in ranked} == {"linkedin:1", "linkedin:2"}
+    assert all(rj.rationale == "(ranking unavailable)" for rj in ranked)
+    assert store.exists("linkedin:1")  # still persisted as discovered

@@ -232,7 +232,17 @@ class DiscoveryService:
     def discover(self) -> list[RankedJob]:
         postings = normalize_rows(self._gather_rows())
         candidates = [p for p in postings if not self._store.exists(p.job_id)]
-        ranked = self._ranker.rank(candidates, self._top_n)
+        try:
+            ranked = self._ranker.rank(candidates, self._top_n)
+        except Exception as exc:  # noqa: BLE001
+            # The ranking LLM (NIM free tier) can time out / error. Don't lose the
+            # whole digest — degrade to unranked candidates so the user still sees
+            # today's jobs (invariant 3); they're flagged as unranked.
+            logger.warning("ranking failed (%s); presenting unranked candidates", exc)
+            ranked = [
+                RankedJob(posting=p, summary="", rationale="(ranking unavailable)")
+                for p in candidates[: self._top_n]
+            ]
         for rj in ranked:
             p = rj.posting
             self._store.add(p.job_id, p.company, p.title, p.url)
