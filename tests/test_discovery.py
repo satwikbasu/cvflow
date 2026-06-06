@@ -276,3 +276,31 @@ def test_prefilter_passes_job_type_to_search_fn() -> None:
         throttle_seconds=0.0, sleep=lambda s: None, job_type="fulltime",
     ).discover()
     assert captured.get("job_type") == "fulltime"
+
+
+def test_ranker_prompt_includes_preferences_and_parses_score_concerns() -> None:
+    captured = {}
+
+    class _Prov:
+        def generate(self, prompt: str) -> str:
+            captured["prompt"] = prompt
+            return (
+                '[{"job_id": "linkedin:1", "fit_score": 88, '
+                '"rationale": "infra fit", "concerns": ["salary not stated"]}]'
+            )
+
+    ranker = LLMRanker(_Prov(), "PROFILE", preferences="HARD: yoe<=1; product cos")
+    out = ranker.rank(normalize_rows([_row("1")]), top_n=5)
+    assert "product cos" in captured["prompt"]
+    assert out[0].fit_score == 88
+    assert out[0].concerns == ["salary not stated"]
+
+
+def test_ranker_excluded_jobs_simply_absent() -> None:
+    class _Prov:
+        def generate(self, prompt: str) -> str:
+            return '[{"job_id": "linkedin:2", "fit_score": 70, "rationale": "ok", "concerns": []}]'
+
+    ranker = LLMRanker(_Prov(), "P", preferences="prefs")
+    out = ranker.rank(normalize_rows([_row("1"), _row("2")]), top_n=5)
+    assert [r.posting.job_id for r in out] == ["linkedin:2"]

@@ -131,25 +131,30 @@ class _Ranker(Protocol):
 class LLMRanker:
     """Ranks candidate postings against the profile via the (Gemini) LLM client."""
 
-    def __init__(self, provider: _Provider, profile_context: str) -> None:
+    def __init__(self, provider: _Provider, profile_context: str, preferences: str = "") -> None:
         self._provider = provider
         self._profile_context = profile_context
+        self._preferences = preferences
 
     def _build_prompt(self, postings: list[JobPosting]) -> str:
         jobs = [
-            {
-                "job_id": p.job_id,
-                "title": p.title,
-                "company": p.company,
-                "location": p.location,
-                "description": p.description[:1500],
-            }
+            {"job_id": p.job_id, "title": p.title, "company": p.company,
+             "location": p.location, "description": p.description[:1500]}
             for p in postings
         ]
         return (
-            "You rank job postings by fit against a candidate's profile.\n"
-            "Return ONLY a JSON array, best-first, of objects "
-            '{"job_id", "summary", "rationale"}. Use only job_ids from the list.\n\n'
+            "You rank job postings for a candidate and EXCLUDE ones they should not apply to.\n"
+            "Hard rules — OMIT a job entirely if its description implies any of:\n"
+            "  • required minimum experience greater than the candidate's (a stated range must "
+            "include the candidate's years, or be fresher/entry-level);\n"
+            "  • night-shift or rotational-on-call ONLY;\n"
+            "  • the role is primarily long-term maintenance of a large application codebase.\n"
+            "If a fact is NOT stated, do NOT exclude on it — keep the job and add a concern.\n"
+            "Prefer reputable, product-based companies. Use only the given job_ids.\n"
+            "Return ONLY a JSON array, best-first, of "
+            '{"job_id", "fit_score" (0-100), "rationale" (specific, cite the profile/preferences), '
+            '"concerns" (array of short strings, e.g. "salary not stated", "YOE not stated")}.\n\n'
+            f"## Candidate preferences (hard + soft)\n{self._preferences}\n\n"
             f"## Candidate profile\n{self._profile_context}\n\n"
             f"## Job postings\n{json.dumps(jobs, indent=2)}\n"
         )
@@ -168,6 +173,8 @@ class LLMRanker:
                     posting=posting,
                     summary=str(entry.get("summary", "")),
                     rationale=str(entry.get("rationale", "")),
+                    fit_score=int(entry.get("fit_score", 0) or 0),
+                    concerns=[str(c) for c in entry.get("concerns", [])],
                 )
             )
         return ranked[:top_n]
