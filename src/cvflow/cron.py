@@ -92,7 +92,11 @@ def main(
 
         services = _build(load_config("config.yaml"))
     store, discovery, otp, notify = services
-    run_job(args[0], store=store, discovery=discovery, otp=otp, notify=notify)
+    try:
+        run_job(args[0], store=store, discovery=discovery, otp=otp, notify=notify)
+    except Exception as exc:  # noqa: BLE001 — a cron crash must still reach the user
+        notify(f"⚠️ cvflow cron job {args[0]!r} failed: {exc}")
+        raise
 
 
 if __name__ == "__main__":

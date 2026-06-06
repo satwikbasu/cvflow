@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -28,6 +29,8 @@ __all__ = [
     "DiscoveryService",
     "normalize_rows",
 ]
+
+logger = logging.getLogger("cvflow.discovery")
 
 
 @dataclass(frozen=True)
@@ -205,15 +208,24 @@ class DiscoveryService:
         rows: list[dict[str, Any]] = []
         for term in self._search_terms:
             for location in self._locations:
-                rows.extend(
-                    self._search_fn(
-                        site_name=self._sites,
-                        search_term=term,
-                        location=location,
-                        results_wanted=self._results_wanted_per_site,
-                        hours_old=self._hours_old,
+                try:
+                    rows.extend(
+                        self._search_fn(
+                            site_name=self._sites,
+                            search_term=term,
+                            location=location,
+                            results_wanted=self._results_wanted_per_site,
+                            hours_old=self._hours_old,
+                        )
                     )
-                )
+                except Exception as exc:  # noqa: BLE001
+                    # JobSpy/board scraping is brittle (anti-bot 403s, endpoint drift,
+                    # a single unparseable posting). One failing batch must never abort
+                    # the whole run or silence the digest (invariant 3) — log + continue.
+                    logger.warning(
+                        "discovery search failed for term=%r location=%r: %s",
+                        term, location, exc,
+                    )
                 self._sleep(self._throttle_seconds)
         return rows
 

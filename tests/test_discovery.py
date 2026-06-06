@@ -172,3 +172,32 @@ def test_discover_throttles_once_per_scrape_pair() -> None:
     svc.discover()
     assert calls["n"] == 2
     assert sleeps == [1.0, 1.0]
+
+
+def test_discover_survives_a_failing_search_batch() -> None:
+    """One (term,location) batch raising must not abort the whole run (invariant 3)."""
+    store = ApplicationStore(":memory:")
+    ranker = _RecordingRanker()
+    calls = {"n": 0}
+
+    def flaky_search(**kwargs: object) -> list[dict[str, object]]:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("LinkedInException: Invalid country string: 'kosovo'")
+        return [_row("2", site="indeed")]
+
+    svc = DiscoveryService(
+        store=store,
+        ranker=ranker,  # type: ignore[arg-type]
+        search_fn=flaky_search,
+        search_terms=["backend"],
+        locations=["Remote", "India"],  # 2 batches: first raises, second returns
+        sites=["linkedin", "indeed"],
+        results_wanted_per_site=10,
+        hours_old=72,
+        top_n=3,
+        throttle_seconds=0.0,
+        sleep=lambda s: None,
+    )
+    ranked = svc.discover()
+    assert [rj.posting.job_id for rj in ranked] == ["indeed:2"]  # good batch survived

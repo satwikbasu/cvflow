@@ -79,3 +79,16 @@ def test_main_bad_args_exits():
     from cvflow.cron import main
     with pytest.raises(SystemExit):
         main([], services=(None, None, None, lambda m: None))
+
+
+def test_main_notifies_on_job_failure():
+    notes = []
+
+    class _Disc:
+        def discover(self):
+            raise RuntimeError("boom")
+
+    from cvflow.cron import main
+    with pytest.raises(RuntimeError):
+        main(["discover"], services=(None, _Disc(), None, notes.append))
+    assert any("failed" in n for n in notes)
