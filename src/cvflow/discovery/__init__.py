@@ -149,10 +149,18 @@ class _Ranker(Protocol):
 class LLMRanker:
     """Ranks candidate postings against the profile via the (Gemini) LLM client."""
 
-    def __init__(self, provider: _Provider, profile_context: str, preferences: str = "") -> None:
+    def __init__(
+        self,
+        provider: _Provider,
+        profile_context: str,
+        preferences: str = "",
+        *,
+        batch_size: int = 10,
+    ) -> None:
         self._provider = provider
         self._profile_context = profile_context
         self._preferences = preferences
+        self._batch_size = batch_size
 
     def _build_prompt(self, postings: list[JobPosting]) -> str:
         jobs = [
@@ -177,9 +185,9 @@ class LLMRanker:
             f"## Job postings\n{json.dumps(jobs, indent=2)}\n"
         )
 
-    def rank(self, postings: list[JobPosting], top_n: int) -> list[RankedJob]:
-        by_id = {p.job_id: p for p in postings}
-        raw = self._provider.generate(self._build_prompt(postings))
+    def _rank_batch(self, batch: list[JobPosting]) -> list[RankedJob]:
+        by_id = {p.job_id: p for p in batch}
+        raw = self._provider.generate(self._build_prompt(batch))
         entries = json.loads(_strip_code_fence(raw))
         ranked: list[RankedJob] = []
         for entry in entries:
@@ -195,6 +203,32 @@ class LLMRanker:
                     concerns=[str(c) for c in entry.get("concerns", [])],
                 )
             )
+        return ranked
+
+    def rank(self, postings: list[JobPosting], top_n: int) -> list[RankedJob]:
+        """Rank in small batches so no single LLM call is huge (the cause of read
+        timeouts that previously degraded the whole digest to unranked).
+
+        Each batch is independent: one failing batch is logged and skipped, the
+        rest survive (invariant 3). Only if EVERY batch fails do we re-raise, so
+        DiscoveryService still falls back to presenting unranked candidates.
+        """
+        ranked: list[RankedJob] = []
+        last_error: Exception | None = None
+        attempted = 0
+        for start in range(0, len(postings), self._batch_size):
+            batch = postings[start : start + self._batch_size]
+            attempted += 1
+            try:
+                ranked.extend(self._rank_batch(batch))
+            except Exception as exc:  # noqa: BLE001 — isolate a slow/garbled batch
+                last_error = exc
+                logger.warning(
+                    "ranking batch %d (%d jobs) failed: %s", attempted, len(batch), exc
+                )
+        if not ranked and last_error is not None:
+            raise last_error  # total failure → let discover() present unranked
+        ranked.sort(key=lambda r: r.fit_score, reverse=True)
         return ranked[:top_n]
 
 

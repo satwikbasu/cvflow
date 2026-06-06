@@ -304,3 +304,59 @@ def test_ranker_excluded_jobs_simply_absent() -> None:
     ranker = LLMRanker(_Prov(), "P", preferences="prefs")
     out = ranker.rank(normalize_rows([_row("1"), _row("2")]), top_n=5)
     assert [r.posting.job_id for r in out] == ["linkedin:2"]
+
+
+def test_ranker_batches_and_sorts_by_fit_score() -> None:
+    import re as _re
+    calls = []
+
+    class _Prov:
+        def generate(self, prompt: str) -> str:
+            calls.append(prompt)
+            ids = _re.findall(r'"job_id": "(linkedin:\d+)"', prompt)
+            return json.dumps(
+                [{"job_id": i, "fit_score": int(i.split(":")[1]),
+                  "rationale": "r", "concerns": []} for i in ids]
+            )
+
+    postings = normalize_rows([_row(str(n)) for n in range(25)])
+    ranker = LLMRanker(_Prov(), "P", preferences="pref", batch_size=10)
+    out = ranker.rank(postings, top_n=5)
+    assert len(calls) == 3  # 25 -> 10 + 10 + 5
+    scores = [r.fit_score for r in out]
+    assert scores == sorted(scores, reverse=True)
+    assert out[0].fit_score == 24
+
+
+def test_ranker_partial_batch_failure_keeps_other_batches() -> None:
+    import re as _re
+
+    class _Prov:
+        def __init__(self) -> None:
+            self.n = 0
+
+        def generate(self, prompt: str) -> str:
+            self.n += 1
+            if self.n == 1:
+                raise RuntimeError("read timeout")
+            ids = _re.findall(r'"job_id": "(linkedin:\d+)"', prompt)
+            return json.dumps(
+                [{"job_id": i, "fit_score": 50, "rationale": "r", "concerns": []} for i in ids]
+            )
+
+    postings = normalize_rows([_row(str(n)) for n in range(15)])
+    ranker = LLMRanker(_Prov(), "P", batch_size=10)
+    out = ranker.rank(postings, top_n=20)
+    assert len(out) == 5  # batch 1 (10) failed; batch 2 (5) survived
+
+
+def test_ranker_all_batches_fail_raises() -> None:
+    import pytest
+
+    class _Prov:
+        def generate(self, prompt: str) -> str:
+            raise RuntimeError("down")
+
+    ranker = LLMRanker(_Prov(), "P", batch_size=10)
+    with pytest.raises(RuntimeError):
+        ranker.rank(normalize_rows([_row("1")]), top_n=5)
