@@ -360,3 +360,20 @@ def test_ranker_all_batches_fail_raises() -> None:
     ranker = LLMRanker(_Prov(), "P", batch_size=10)
     with pytest.raises(RuntimeError):
         ranker.rank(normalize_rows([_row("1")]), top_n=5)
+
+
+def test_discover_caps_candidates_by_recency_before_ranking() -> None:
+    store = ApplicationStore(":memory:")
+    ranker = _RecordingRanker()
+    rows = [_row(str(n), date_posted=f"2026-06-{(n % 28) + 1:02d}") for n in range(60)]
+    svc = DiscoveryService(
+        store=store, ranker=ranker, search_fn=lambda **k: rows,
+        search_terms=["x"], locations=["Remote"], sites=["indeed"],
+        results_wanted_per_site=100, hours_old=72, top_n=5,
+        throttle_seconds=0.0, sleep=lambda s: None,
+        max_rank_candidates=10,
+    )
+    svc.discover()
+    assert len(ranker.seen_candidates) == 10
+    dates = [p.date_posted for p in ranker.seen_candidates]
+    assert dates == sorted(dates, reverse=True)  # newest first

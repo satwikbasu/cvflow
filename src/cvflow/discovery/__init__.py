@@ -280,6 +280,7 @@ class DiscoveryService:
         exclude_title_keywords: list[str] | None = None,
         min_ctc_lpa: int = 0,
         job_type: str | None = None,
+        max_rank_candidates: int = 40,
     ) -> None:
         self._store = store
         self._ranker = ranker
@@ -295,6 +296,7 @@ class DiscoveryService:
         self._exclude_title_keywords = [k.lower() for k in (exclude_title_keywords or [])]
         self._min_ctc_lpa = min_ctc_lpa
         self._job_type = job_type
+        self._max_rank_candidates = max_rank_candidates
 
     def _gather_rows(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
@@ -341,6 +343,18 @@ class DiscoveryService:
     def discover(self) -> list[RankedJob]:
         postings = self._prefilter(normalize_rows(self._gather_rows()))
         candidates = [p for p in postings if not self._store.exists(p.job_id)]
+        logger.info("discovery: %d new candidates after prefilter+dedup", len(candidates))
+        if len(candidates) > self._max_rank_candidates:
+            # LLM ranking is the slow step; ranking hundreds of jobs per day on the
+            # free-tier brain is impractical (and we only present the top few). Keep
+            # the freshest postings and log how many were set aside (never silent).
+            candidates.sort(key=lambda p: p.date_posted, reverse=True)
+            dropped = len(candidates) - self._max_rank_candidates
+            candidates = candidates[: self._max_rank_candidates]
+            logger.info(
+                "discovery: ranking newest %d candidates (%d older set aside)",
+                self._max_rank_candidates, dropped,
+            )
         try:
             ranked = self._ranker.rank(candidates, self._top_n)
         except Exception as exc:  # noqa: BLE001
