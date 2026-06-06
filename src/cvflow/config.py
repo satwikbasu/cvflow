@@ -45,6 +45,17 @@ class DiscoveryConfig:
 
 
 @dataclass(frozen=True)
+class PreferencesConfig:
+    yoe_have: int
+    min_ctc_lpa: int
+    job_type: str
+    exclude_title_keywords: list[str]
+    prefer_product_companies: bool
+    exclude_app_maintenance: bool
+    exclude_night_shift_only: bool
+
+
+@dataclass(frozen=True)
 class BrainConfig:
     provider: str
     api_key: str
@@ -110,6 +121,7 @@ class Config:
     telegram: TelegramConfig
     schedule: ScheduleConfig
     discovery: DiscoveryConfig
+    preferences: PreferencesConfig
     llm: LLMConfig
     resume: ResumeConfig
     automation: AutomationConfig
@@ -182,6 +194,7 @@ def load_config(path: str | Path) -> Config:
     tg = _section(data, "telegram", "")
     sch = _section(data, "schedule", "")
     disc = _section(data, "discovery", "")
+    pref = _section(data, "preferences", "")
     llm = _section(data, "llm", "")
     brain = _section(llm, "brain", "llm.")
     tail = _section(llm, "tailoring", "llm.")
@@ -213,6 +226,15 @@ def load_config(path: str | Path) -> Config:
             results_wanted_per_site=_get_int(disc, "results_wanted_per_site", "discovery."),
             hours_old=_get_int(disc, "hours_old", "discovery."),
             top_n_to_present=_get_int(disc, "top_n_to_present", "discovery."),
+        ),
+        preferences=PreferencesConfig(
+            yoe_have=_get_int(pref, "yoe_have", "preferences."),
+            min_ctc_lpa=_get_int(pref, "min_ctc_lpa", "preferences."),
+            job_type=_get_str(pref, "job_type", "preferences."),
+            exclude_title_keywords=_get_str_list(pref, "exclude_title_keywords", "preferences."),
+            prefer_product_companies=_get_bool(pref, "prefer_product_companies", "preferences."),
+            exclude_app_maintenance=_get_bool(pref, "exclude_app_maintenance", "preferences."),
+            exclude_night_shift_only=_get_bool(pref, "exclude_night_shift_only", "preferences."),
         ),
         llm=LLMConfig(
             brain=BrainConfig(

@@ -20,6 +20,15 @@ discovery:
   hours_old: 72                   # only postings newer than this
   top_n_to_present: 8             # 5–10: how many ranked jobs to show daily (Goal 1)
 
+preferences:
+  yoe_have: 1
+  min_ctc_lpa: 7
+  job_type: "fulltime"
+  exclude_title_keywords: ["senior", "sr.", "lead", "principal", "staff", "manager", "architect", "head", "director", "vp"]
+  prefer_product_companies: true
+  exclude_app_maintenance: true
+  exclude_night_shift_only: true
+
 llm:
   # BRAIN = the model Hermes uses for all agent reasoning + tool calls (configured in
   # Hermes itself via `hermes model`; mirrored here for reference).
