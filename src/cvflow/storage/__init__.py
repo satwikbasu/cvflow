@@ -95,7 +95,33 @@ class ApplicationStore:
         self._conn = sqlite3.connect(str(db_path))
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
+        self._migrate()
         self._conn.commit()
+
+    def _migrate(self) -> None:
+        """Idempotently add columns that newer phases appended to ``applications``.
+
+        ``CREATE TABLE IF NOT EXISTS`` never alters an existing table, so a DB
+        created by an earlier version (deploy-by-clone) would be missing the
+        additive proof / otp_deadline columns. Add any that are absent.
+        """
+        existing = {
+            row["name"] for row in self._conn.execute("PRAGMA table_info(applications)")
+        }
+        # column name -> SQL type; all nullable, additive only (never the gate columns).
+        added_columns = {
+            "tailored_pdf_path": "TEXT",
+            "confirmation_ref": "TEXT",
+            "proof_url": "TEXT",
+            "proof_screenshot_path": "TEXT",
+            "proof_page_title": "TEXT",
+            "otp_deadline": "TEXT",
+        }
+        for col, col_type in added_columns.items():
+            if col not in existing:
+                self._conn.execute(
+                    f"ALTER TABLE applications ADD COLUMN {col} {col_type}"
+                )
 
     def _row_to_app(self, row: sqlite3.Row) -> Application:
         return Application(

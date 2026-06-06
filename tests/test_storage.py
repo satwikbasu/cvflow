@@ -186,3 +186,33 @@ def test_set_otp_deadline_and_list_awaiting_otp():
     store.set_otp_deadline("indeed:1", None)
     assert store.get("indeed:1").otp_deadline is None
     assert store.list_awaiting_otp() == []
+
+
+def test_migration_adds_missing_columns_to_old_db(tmp_path):
+    import sqlite3
+
+    from cvflow.storage import ApplicationStore
+
+    db = tmp_path / "old.db"
+    # Simulate a pre-Phase-9 DB: applications table without the additive columns.
+    conn = sqlite3.connect(str(db))
+    conn.executescript(
+        "CREATE TABLE applications ("
+        " job_id TEXT PRIMARY KEY, company TEXT NOT NULL, role TEXT NOT NULL,"
+        " jd_url TEXT NOT NULL, status TEXT NOT NULL, discovered_at TEXT NOT NULL,"
+        " applied_at TEXT);"
+    )
+    conn.execute(
+        "INSERT INTO applications (job_id, company, role, jd_url, status, discovered_at) "
+        "VALUES ('indeed:1','Acme','Backend','https://jobs/1','discovered','2026-06-05T00:00:00')"
+    )
+    conn.commit()
+    conn.close()
+
+    store = ApplicationStore(db)  # must migrate without error
+    app = store.get("indeed:1")
+    assert app.proof_url is None
+    assert app.otp_deadline is None
+    # and the new setters work on the migrated DB
+    store.set_otp_deadline("indeed:1", "2026-06-05T10:00:00+00:00")
+    assert store.get("indeed:1").otp_deadline == "2026-06-05T10:00:00+00:00"
