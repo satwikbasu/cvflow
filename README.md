@@ -2,7 +2,7 @@
 
 Autonomous, self-hosted job-application agent. Runs continuously on an Ubuntu server and is operated **entirely through a Telegram chat** — no dashboard, no SSH, no commands during normal use.
 
-Each day it discovers and ranks job postings against your profile, shows you the top 5–10, and for the ones you pick it analyzes the JD, tailors your LaTeX resume, and — **only after you approve in chat** — fills and submits the application via browser automation. It asks you for OTPs and clarifications mid-flow, and tracks every application's status.
+Each day it discovers and ranks job postings against your profile, shows you the top 5–10, and for the ones you pick it analyzes the JD, tailors your LaTeX resume, and — **only after you approve in chat** — drives the application via browser automation. Form-filling is **assisted, not magic**: the bot fills what it can, pauses to ask you (OTPs, clarifications, fields it can't resolve), and hands off gracefully where a portal is undriveable — it never submits without your approval. It tracks every application's status.
 
 **Hard rule: zero per-call / SaaS cost.** Everything is open-source, free-tier, or self-hosted; the only ongoing cost is the server.
 
@@ -16,7 +16,7 @@ See **[CLAUDE.md](CLAUDE.md)** for the full goals, tech stack, architecture, and
 - **Facts come only from `profile/`** — unanswerable fields trigger a clarification loop, never a guess. Nothing fails silently.
 
 ## Status
-Implemented and operating on the EC2 host via Hermes; **Phases 0–7 complete** (82 tests, `ruff` + `mypy --strict` clean).
+Implemented and operating on the EC2 host via Hermes; **Phases 0–11 + 13 complete** (169 tests, `ruff` + `mypy --strict` clean). 12 MCP tools live (no `approve` — the gate is human-only). **Phase 14 (discovery v2) is fully specced + planned**; **Phase 12 (assisted-apply hardening) is the last build item**.
 
 | ✓ | Phase | Delivers |
 |---|---|---|
@@ -24,15 +24,17 @@ Implemented and operating on the EC2 host via Hermes; **Phases 0–7 complete** 
 | ✅ | 1 Storage + state machine | SQLite tracking store + the un-bypassable approval gate |
 | ✅ | 2 LLM layer | Gemini tailoring client (RPD tracking + cache) |
 | ✅ | 3 Knowledge base | `profile/**` + `form_fields.json` loader |
-| ✅ | 4 Discovery | JobSpy search → dedup → LLM ranking → top-N (+ salary-hike filter) |
+| ✅ | 4 Discovery | JobSpy search → dedup → LLM ranking → top-N (+ salary filter) |
 | ✅ | 5 JD analysis | fetch JD → extract skills/quals/seniority/tone/applicant-instructions |
 | ✅ | 6 Resume tailoring | reorder + select ≤2 projects, no-new-facts check, diff, Tectonic compile |
-| ✅ | 7 Hermes integration | cvflow skills exposed as a live stdio MCP server; `ping` round-trip proven from Telegram |
-| ☐ | 8 Approval-gate skill + chat flows | review message (PDF/diff), approve/edit/skip, digest, OTP, clarification, essays |
-| ☐ | 9 Browser automation | Playwright form-fill, uploads, pause/resume, proof capture |
-| ☐ | 10 Auth | Google OAuth + email-OTP fallback (Fernet-encrypted tokens) |
-| ☐ | 11 Scheduling + deploy | Hermes daily schedule + heartbeat; systemd (gateway unit already live) |
-| ☐ | 12 End-to-end dry run | one full discover→approve→submit cycle on a throwaway account |
+| ✅ | 7 Hermes integration | cvflow skills exposed as a live stdio MCP server |
+| ✅ | 8 Approval-gate skill + chat flows | review message (PDF/diff), `/apply`/`/skip`, digest, OTP, clarification, essays |
+| ✅ | 9 Browser automation | Playwright form-fill, uploads, pause/resume, proof capture (code done; untested vs real portals) |
+| ✅ | 10 Auth | Fernet-encrypted token vault + email-OTP coordinator |
+| ✅ | 11 Scheduling + deploy | Hermes cron (discover/sweep-otp/heartbeat) + systemd gateway unit (live) |
+| ✅ | 13 Relevance + apply ergonomics + learning | preferences engine, `/apply 1 2 4` by number, weekly preference proposals |
+| ☐ | 14 Discovery relevance v2 | **planned** — Gemini-distil → benchmark, M/N cohorts, role-agnostic, analytics/learning log |
+| ☐ | 12 Assisted-apply hardening + dry run | recon real portals → harden top 1–2 ATSs → graceful manual handoff; gate-blocked dry run |
 
 ## Develop
 ```bash
@@ -77,7 +79,7 @@ tracked under **[`artifacts/`](artifacts/README.md)**. Real secrets never enter 
    sudo cp artifacts/hermes/hermes-gateway.service /etc/systemd/system/
    sudo systemctl daemon-reload && sudo systemctl enable --now hermes-gateway
    ```
-6. **Verify:** `hermes mcp test cvflow` → 7 tools; from the authorized Telegram chat send `mcp_cvflow_ping` → `{"status":"ok","service":"cvflow"}`.
+6. **Verify:** `hermes mcp test cvflow` → 12 tools (no `approve`); from the authorized Telegram chat send `mcp_cvflow_ping` → `{"status":"ok","service":"cvflow"}`.
 
 Full detail and the list of what's deliberately *not* tracked is in [`artifacts/README.md`](artifacts/README.md).
 

@@ -119,10 +119,18 @@ Domain phases (1–5) are **independent of the orchestration-substrate decision*
 - Configure Hermes's scheduler for the daily discovery trigger + heartbeat (no hand-built daemon/APScheduler). systemd unit running Hermes as a dedicated unprivileged user (auto-restart, xvfb).
 **Exit:** Hermes runs the daily schedule, sends a heartbeat to Telegram; systemd unit documented in `docs/deploy.md`.
 
-### [ ] Phase 12 — End-to-end dry run
-**Delivers:** confidence.
-- Full flow on a throwaway account against a test/sandbox posting; verify the gate truly blocks until approval and proof is captured.
-**Exit:** one complete discovery→approval→submission cycle logged & reported, with the gate demonstrably blocking pre-approval.
+### [ ] Phase 12 — Assisted-apply hardening + end-to-end dry run (REFRAMED 2026-06-06)
+**Why reframed:** the browser automation code exists (Phase 9) but is untested against real portals. A single "fill any portal autonomously" robot is **not realistically achievable** on a zero-cost/self-hosted budget — every ATS (Greenhouse, Lever, Workday, Naukri, company pages) differs, with anti-bot, multi-step wizards, uploads, and CAPTCHAs. So the goal is **not** hands-off auto-apply everywhere; it's **assisted apply** with the human already in the loop (the approval gate is pre-submission anyway, and Phase 9's pause→clarify→resume lets the bot ask the user when stuck).
+
+**Delivers:** a realistic, measurable submission path.
+- **Recon run first (dry-run, no submit):** point the automator at real postings on a **throwaway account**, log per-portal where it succeeds / pauses / fails. This *maps* the landscape before hardening anything.
+- **Harden the top 1–2 ATSs** that dominate the user's actual results (likely Greenhouse/Lever for product cos, and/or Naukri's apply flow) — solid field-fill + upload + pause/resume there. Don't chase universal coverage.
+- **Graceful manual handoff everywhere else:** when a portal is hopeless (Workday/heavy CAPTCHA), capture the tailored PDF + a pre-filled answer sheet and tell the user "I can't drive this one — here's everything you need + the link, apply manually." The pipeline stays useful even where automation fails.
+- **Verify the gate** truly blocks until approval and that proof is captured on the portals we do drive.
+
+**Success bar (NOT "untouched auto-apply"):** the bot fills the share it can, pauses cleanly for the rest, **never submits without approval**, captures proof where it submits, and degrades to manual-handoff (never a silent failure) where it can't. One complete discover→approve→(assisted)submit cycle logged & reported, gate demonstrably blocking pre-approval.
+
+**Fallback seam:** if our Playwright filler is too brittle for a target portal, Hermes's native browser/computer-use tooling is available (currently disabled for gate safety) — evaluate per-portal, never around the gate.
 
 ### [x] Phase 13 — Relevance engine + apply ergonomics + preference learning
 **Delivers:** discovery surfaces only jobs the user wants & qualifies for; approval by digest number; weekly preference proposals.
@@ -130,6 +138,15 @@ Domain phases (1–5) are **independent of the orchestration-substrate decision*
 - **(B) Apply by number:** `digest_slots` table persists the digest's ordinal→job_id map; `gate.resolve_targets` resolves ordinals/ranges/`all`/raw-ids; `handle_gate_command` approves/skips many at once with an aggregated reply. **The gate stays deterministic — still no `approve` tool; `handle_gate_command` remains the sole `store.approve` caller.**
 - **(C) Preference learning:** weekly `cvflow.cron learn` job summarizes apply/skip history via the brain and **proposes** (never applies) edits to `preferences.md`.
 **Exit:** pre-filter + ranker tested; multi-target gate tested (gate invariant intact); learn job proposes only. Done — see progress log.
+
+### [ ] Phase 14 — Discovery relevance v2 (distill → benchmark) — PLANNED
+**Why:** the Phase-13 single-stage ranker timed out live (≈400 candidates in one NIM prompt → read timeout → unranked "fit 0"; LinkedIn had no descriptions; US jobs leaked). Replace it with a two-stage engine.
+- **(A) Sourcing:** add **Naukri** (India-native; INR salary + `experience_range`), `country_indeed=india`, `linkedin_fetch_description=true`, `hours_old` (no Indeed `job_type`); declarative config `exclude_when` rules (no hardcoded boolean gates).
+- **(B) Distill:** Gemini 2.5 Flash (thinking off, `response_schema`) compresses each JD into a cached structured **Crux**; the brain never sees raw JDs.
+- **(C) Benchmark:** hybrid — code `Comp` + one NIM call for `Fit` (config `fit_weight`/`comp_weight`, role-agnostic `prefer_roles` map); **M/N cohorts** (stated-INR-pay vs not) scored separately; two-section continuously-numbered digest (`/apply N` unchanged). India-focused — no FX/location scoring (deferred).
+- **(D) Analytics/learning:** `decisions` table + `analytics.summarize` (dashboard payload) + weekly `learn` job appends a dated `data/learning/` log (propose-only). NOT training; Hermes's own memory doesn't apply (discovery runs `--no-agent`).
+**Gate invariant intact** (no `approve` tool; decision logging is best-effort, never blocks approval).
+**Specs:** `specs/2026-06-06-phase-14{a,b,c,d}-*.md`. **Plan:** `2026-06-06-phase-14-discovery-relevance-v2.md` (18 TDD tasks). **Exit:** two-stage pipeline tested end-to-end (mocked), real-run digest shows non-zero fit scores in two sections.
 
 ---
 
