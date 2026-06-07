@@ -137,25 +137,24 @@ def test_run_job_discover_sets_slots_in_combined_order():
     assert store.digest_slots() == ["indeed:1", "indeed:2"]  # M first, then N
 
 
-def test_run_job_learn_notifies_suggestion():
+def test_run_job_learn_appends_dated_log(tmp_path):
     from cvflow.cron import run_job
-    from cvflow.statemachine import Status
     from cvflow.storage import ApplicationStore
     store = ApplicationStore(":memory:")
-    for jid, st in [("indeed:a", Status.APPLIED), ("indeed:b", Status.SKIPPED),
-                    ("indeed:c", Status.SKIPPED)]:
-        store.add(jid, f"Co-{jid}", "Role", "https://x")
-        if st is Status.APPLIED:
-            store.set_status(jid, Status.PENDING_REVIEW)
-            store.approve(jid)
-            store.set_status(jid, Status.APPLIED)
-        else:
-            store.set_status(jid, Status.SKIPPED)
+    for i in range(3):
+        store.add(f"indeed:{i}", "Co", "Role", "https://x")
+        store.add_decision(job_id=f"indeed:{i}", decision="skip", role_family="frontend",
+                           company="Svc", company_type="service", fit_score=40)
     notes = []
 
     class _Prov:
-        def generate(self, prompt): return "Avoid service cos."
+        def generate(self, prompt, **kw):
+            return "Consider down-ranking service companies."
 
     run_job("learn", store=store, discovery=None, otp=None, notify=notes.append,
-            learn_provider=_Prov(), min_decisions=1)
-    assert any("Avoid service cos." in n for n in notes)
+            learn_provider=_Prov(), min_decisions=1, learning_dir=str(tmp_path))
+    assert any("service companies" in n for n in notes)
+    logs = list(tmp_path.glob("*.md"))
+    assert len(logs) == 1
+    body = logs[0].read_text()
+    assert "service companies" in body and "frontend" in body  # suggestion + stats snapshot

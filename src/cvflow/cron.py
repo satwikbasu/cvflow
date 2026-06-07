@@ -48,6 +48,7 @@ def format_digest(result: dict[str, Any]) -> str:
 def run_job(
     job: str, *, store: Any, discovery: Any, otp: Any, notify: Any,
     learn_provider: Any = None, min_decisions: int = 5,
+    learning_dir: str = "data/learning",
 ) -> None:
     """Dispatch one scheduled job. Pure of config/network — deps are injected."""
     if job == "discover":
@@ -61,24 +62,32 @@ def run_job(
         counts = ", ".join(f"{s.value}={len(store.list_by_status(s))}" for s in Status)
         notify(f"💓 cvflow alive — {counts}")
     elif job == "learn":
+        import json
+        from datetime import UTC, datetime
+        from pathlib import Path
+
+        from cvflow.analytics import summarize
         from cvflow.learning import summarize_decisions
 
-        def _jobs(*statuses: Status) -> list[dict[str, Any]]:
-            out: list[dict[str, Any]] = []
-            for s in statuses:
-                out += [{"role": a.role, "company": a.company} for a in store.list_by_status(s)]
-            return out
-
-        applied = _jobs(Status.APPROVED, Status.APPLIED)
-        skipped = _jobs(Status.SKIPPED)
+        stats = summarize(store)
+        decisions = store.recent_decisions(200)
+        applied = [d for d in decisions if d["decision"] == "apply"]
+        skipped = [d for d in decisions if d["decision"] == "skip"]
         suggestion = summarize_decisions(
             applied, skipped, provider=learn_provider, min_decisions=min_decisions
         )
         if suggestion:
-            notify(
-                "💡 Preference suggestions (reply by editing profile/preferences.md):\n"
-                + suggestion
+            day = datetime.now(UTC).date().isoformat()
+            Path(learning_dir).mkdir(parents=True, exist_ok=True)
+            path = Path(learning_dir) / f"{day}.md"
+            entry = (
+                f"\n## {datetime.now(UTC).isoformat()}\n\n"
+                f"**Stats:** {json.dumps(stats, default=str)}\n\n"
+                f"**Suggestion:**\n{suggestion}\n"
             )
+            with path.open("a") as fh:
+                fh.write(entry)
+            notify("💡 Preference suggestions (logged to data/learning/):\n" + suggestion)
     else:
         raise ValueError(f"unknown cron job: {job}")
 
