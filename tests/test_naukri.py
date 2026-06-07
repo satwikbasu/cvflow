@@ -83,3 +83,18 @@ def test_search_naukri_retries_once_on_403_then_gives_up():
                          get_fn=get_fn, nkparam_fn=lambda: "tok")
     assert rows == []
     assert calls["n"] == 2  # one retry with a fresh token, then stop
+
+
+def test_search_naukri_400_is_clean_end_of_pages():
+    calls = {"n": 0}
+
+    def get_fn(url, *, params, headers):
+        calls["n"] += 1
+        if params["pageNo"] == 1:
+            return _page(_job("1"))
+        return 400, {}  # page 2 -> no more pages, not an error
+
+    rows = search_naukri(search_term="x", location="Remote", results_wanted=40, hours_old=72,
+                         get_fn=get_fn, nkparam_fn=lambda: "tok")
+    assert len(rows) == 1            # page 1 kept
+    assert calls["n"] == 2           # page 2 tried once, no 403-style retry

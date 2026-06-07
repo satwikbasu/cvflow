@@ -184,6 +184,10 @@ def _fetch_page(
         if status == 403 and attempt == 1:
             logger.info("naukri 403 (stale nkparam); retrying with a fresh token")
             continue
+        if status in (400, 404):
+            # No more pages for this query (common on later pages / sparse locations).
+            logger.debug("naukri end-of-pages HTTP %d (page %s)", status, params.get("pageNo"))
+            return []
         logger.warning("naukri search HTTP %d (page %s)", status, params.get("pageNo"))
         return []
     return []

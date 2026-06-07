@@ -358,12 +358,18 @@ class DiscoveryService:
             "stage prefilter+dedup: %d candidates (from %d postings)",
             len(candidates), len(postings),
         )
-        # Distill ONCE over the newest candidates, then partition — salary is usually only
-        # in the JD text (JobSpy structured fields are empty), so the M/N split must use the
+        # Distill ONCE over the candidate pool, then partition — salary is usually only in
+        # the JD text (JobSpy structured fields are empty), so the M/N split must use the
         # crux-extracted salary, not the pre-distill structured field.
-        capped = sorted(candidates, key=lambda p: p.date_posted, reverse=True)[
-            : self._max_distill_per_cohort
-        ]
+        # Keep gather order (not a date sort: date_posted strings are inconsistent across
+        # sources — ISO vs '2 Days Ago' — so sorting them is meaningless). Gather order
+        # already front-loads the earlier, higher-priority search terms.
+        capped = candidates[: self._max_distill_per_cohort]
+        if len(candidates) > self._max_distill_per_cohort:
+            logger.info(
+                "distill cap: %d of %d candidates (raise max_distill_per_cohort for more)",
+                self._max_distill_per_cohort, len(candidates),
+            )
         by_id = {p.job_id: p for p in capped}
         distiller = Distiller(self._distiller_provider, seed=self._distill_seed)
         t = time.monotonic()

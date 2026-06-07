@@ -21,7 +21,7 @@ discovery:
   top_n_to_present: 8             # 5–10: how many ranked jobs to show daily (Goal 1)
   country_indeed: "india"         # pin Indeed/Naukri to a country (Phase 14A)
   linkedin_fetch_description: true  # fetch full LinkedIn JD text so distillation has content
-  max_distill_per_cohort: 60      # recency-cap each cohort before Gemini distillation
+  max_distill_per_cohort: 400     # total distill cap per run (Mistral fast + cached); raise for volume
   top_n_per_cohort: 5             # how many ranked jobs to show per M/N section
   reconsider_discovered: false    # TESTING: set true to re-rank already-shown (un-applied)
                                   # jobs each run instead of dedup'ing them; false in production
