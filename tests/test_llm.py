@@ -119,6 +119,7 @@ def test_gemini_generate_structured_sets_config_and_returns_text():
 
 def test_nim_generate_sends_seed_and_json_object():
     import json
+
     from cvflow.llm import NimProvider
 
     captured = {}
@@ -140,6 +141,7 @@ def test_nim_generate_sends_seed_and_json_object():
 
 def test_nim_generate_default_no_extra_params():
     import json
+
     from cvflow.llm import NimProvider
     captured = {}
 
