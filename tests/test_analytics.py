@@ -35,3 +35,25 @@ def test_summarize_apply_rate_by_role():
     assert summary["totals"]["apply"] == 1 and summary["totals"]["skip"] == 1
     assert summary["apply_rate_by_role"]["devops"] == 1.0
     assert summary["apply_rate_by_role"]["frontend"] == 0.0
+
+
+def test_summarize_extended_rollup_fields():
+    store = ApplicationStore(":memory:")
+    for jid in ("a", "b", "c"):
+        store.add(f"indeed:{jid}", "Co", "Role", "https://x")
+    record_decision(store, "apply", _bj("indeed:a", "devops", "product", 80, lpa=18.0, cohort="M"),
+                    role_family="devops", company_type="product")
+    record_decision(store, "skip", _bj("indeed:b", "frontend", "service", 40, cohort="N"),
+                    role_family="frontend", company_type="service")
+    record_decision(store, "apply", _bj("indeed:c", "backend", "product", 70, lpa=12.0, cohort="M"),
+                    role_family="backend", company_type="product")
+    s = summarize(store)
+    assert s["apply_rate_by_company_type"]["product"] == 1.0
+    assert s["apply_rate_by_company_type"]["service"] == 0.0
+    assert s["apply_rate_by_cohort"]["M"] == 1.0
+    assert s["apply_rate_by_cohort"]["N"] == 0.0
+    assert s["median_benchmark_applied"] == 75
+    assert s["median_ctc_applied"] == 15.0
+    assert s["top_skipped_roles"][0][0] == "frontend"
+    assert isinstance(s["status_counts"], dict)
+    assert s["last_7d"]["totals"]["apply"] == 2  # just-written decisions are recent
