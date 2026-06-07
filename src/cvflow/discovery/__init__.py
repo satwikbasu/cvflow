@@ -236,6 +236,16 @@ class LLMRanker:
 
 SearchFn = Callable[..., list[dict[str, Any]]]
 
+# Imported here (not at module top) because these modules import JobPosting from
+# this package — JobPosting must be defined first to avoid a circular import.
+from cvflow.discovery.benchmark import (  # noqa: E402
+    BenchmarkedJob,
+    benchmark_cohort,
+    fit_scores,
+)
+from cvflow.discovery.distill import Crux, Distiller, distill_all  # noqa: E402
+from cvflow.discovery.rules import crux_excluded  # noqa: E402
+
 
 def _jobspy_search(
     *,
@@ -270,7 +280,7 @@ class DiscoveryService:
     def __init__(
         self,
         store: Any,
-        ranker: _Ranker,
+        ranker: Any = None,
         search_fn: SearchFn = _jobspy_search,
         *,
         search_terms: list[str],
@@ -286,6 +296,17 @@ class DiscoveryService:
         country_indeed: str = "usa",
         linkedin_fetch_description: bool = False,
         max_rank_candidates: int = 40,
+        gemini: Any = None,
+        brain: Any = None,
+        fingerprint: str = "",
+        prefer_roles: dict[str, float] | None = None,
+        exclude_when: list[dict[str, Any]] | None = None,
+        fit_weight: float = 0.70,
+        comp_weight: float = 0.30,
+        top_ctc_lpa: int = 40,
+        max_distill_per_cohort: int = 60,
+        top_n_per_cohort: int = 5,
+        distill_seed: int = 73,
     ) -> None:
         self._store = store
         self._ranker = ranker
@@ -303,6 +324,17 @@ class DiscoveryService:
         self._country_indeed = country_indeed
         self._linkedin_fetch_description = linkedin_fetch_description
         self._max_rank_candidates = max_rank_candidates
+        self._gemini = gemini
+        self._brain = brain
+        self._fingerprint = fingerprint
+        self._prefer_roles = prefer_roles or {}
+        self._exclude_when = exclude_when or []
+        self._fit_weight = fit_weight
+        self._comp_weight = comp_weight
+        self._top_ctc_lpa = top_ctc_lpa
+        self._max_distill_per_cohort = max_distill_per_cohort
+        self._top_n_per_cohort = top_n_per_cohort
+        self._distill_seed = distill_seed
 
     def _gather_rows(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
@@ -347,33 +379,51 @@ class DiscoveryService:
             kept.append(p)
         return kept
 
-    def discover(self) -> list[RankedJob]:
+    @staticmethod
+    def _has_inr_salary(p: JobPosting) -> bool:
+        amount = p.max_amount if p.max_amount is not None else p.min_amount
+        return amount is not None and (p.currency or "INR").upper() == "INR"
+
+    def _benchmark_cohort(
+        self, postings: list[JobPosting], cohort: str
+    ) -> list[BenchmarkedJob]:
+        if not postings:
+            return []
+        capped = sorted(postings, key=lambda p: p.date_posted, reverse=True)[
+            : self._max_distill_per_cohort
+        ]
+        distiller = Distiller(self._gemini, seed=self._distill_seed)
+        cruxes = distill_all(capped, self._store, distiller)
+        kept_cruxes: list[Crux] = []
+        for c in cruxes:
+            excluded, reason = crux_excluded(c.model_dump(), self._exclude_when)
+            if excluded:
+                logger.info("exclude_when drop %s: %s", c.job_id, reason)
+                continue
+            kept_cruxes.append(c)
+        by_id = {p.job_id: p for p in capped}
+        jobs = {c.job_id: by_id[c.job_id] for c in kept_cruxes}
+        fits = fit_scores(
+            kept_cruxes, fingerprint=self._fingerprint,
+            prefer_roles=self._prefer_roles, provider=self._brain,
+        )
+        ranked = benchmark_cohort(
+            jobs, fits, cohort=cohort, fit_weight=self._fit_weight,
+            comp_weight=self._comp_weight, min_lpa=self._min_ctc_lpa,
+            top_lpa=self._top_ctc_lpa,
+        )
+        return ranked[: self._top_n_per_cohort]
+
+    def discover(self) -> dict[str, list[BenchmarkedJob]]:
         postings = self._prefilter(normalize_rows(self._gather_rows()))
         candidates = [p for p in postings if not self._store.exists(p.job_id)]
         logger.info("discovery: %d new candidates after prefilter+dedup", len(candidates))
-        if len(candidates) > self._max_rank_candidates:
-            # LLM ranking is the slow step; ranking hundreds of jobs per day on the
-            # free-tier brain is impractical (and we only present the top few). Keep
-            # the freshest postings and log how many were set aside (never silent).
-            candidates.sort(key=lambda p: p.date_posted, reverse=True)
-            dropped = len(candidates) - self._max_rank_candidates
-            candidates = candidates[: self._max_rank_candidates]
-            logger.info(
-                "discovery: ranking newest %d candidates (%d older set aside)",
-                self._max_rank_candidates, dropped,
-            )
-        try:
-            ranked = self._ranker.rank(candidates, self._top_n)
-        except Exception as exc:  # noqa: BLE001
-            # The ranking LLM (NIM free tier) can time out / error. Don't lose the
-            # whole digest — degrade to unranked candidates so the user still sees
-            # today's jobs (invariant 3); they're flagged as unranked.
-            logger.warning("ranking failed (%s); presenting unranked candidates", exc)
-            ranked = [
-                RankedJob(posting=p, summary="", rationale="(ranking unavailable)")
-                for p in candidates[: self._top_n]
-            ]
-        for rj in ranked:
-            p = rj.posting
-            self._store.add(p.job_id, p.company, p.title, p.url)
-        return ranked
+        m = [p for p in candidates if self._has_inr_salary(p)]
+        n = [p for p in candidates if not self._has_inr_salary(p)]
+        result = {"M": self._benchmark_cohort(m, "M"), "N": self._benchmark_cohort(n, "N")}
+        for cohort in result.values():
+            for bj in cohort:
+                p = bj.posting
+                if not self._store.exists(p.job_id):
+                    self._store.add(p.job_id, p.company, p.title, p.url)
+        return result
