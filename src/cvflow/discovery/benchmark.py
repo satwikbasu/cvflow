@@ -183,7 +183,9 @@ def fit_scores(
         logger.warning("fit scoring failed (%s); degrading cohort to fit 0", exc)
         return {jid: FitResult(0, "(ranking unavailable)", ["RANKING_DEGRADED"]) for jid in ids}
     out: dict[str, FitResult] = {}
-    for entry in parsed:
+    for entry in parsed if isinstance(parsed, list) else []:
+        if not isinstance(entry, dict):  # ranker sometimes returns bare strings — skip
+            continue
         jid = str(entry.get("job_id"))
         if jid not in ids:
             continue

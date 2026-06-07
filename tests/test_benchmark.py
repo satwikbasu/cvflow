@@ -137,3 +137,22 @@ def test_no_yoe_unknown_when_min_years_present():
     out = benchmark_cohort(jobs, fits, cohort="M", fit_weight=0.70, comp_weight=0.30,
                            min_lpa=7, top_lpa=40, cruxes={"a": crux})
     assert "YOE_UNKNOWN" not in out[0].concerns
+
+
+def test_fit_scores_tolerates_non_dict_entries():
+    import json
+    from cvflow.discovery.benchmark import fit_scores
+    from cvflow.discovery.distill import Crux
+
+    class _Prov:
+        def generate(self, prompt, **kw):
+            return json.dumps(["indeed:1", "garbage"])  # array of strings, not objects
+
+    crux = Crux(job_id="indeed:1", role_family="devops", seniority_signal="junior",
+                min_years_required=1, max_years_required=2, work_mode="remote",
+                location_text="Remote", country="india", stated_salary=None, tech_stack=[],
+                night_shift_only=False, app_maintenance_focus=False, company_type="product",
+                red_flags=[], applicant_instructions=None, one_line="x")
+    out = fit_scores([crux], fingerprint="FP", prefer_roles={}, provider=_Prov())
+    assert out["indeed:1"].fit_score == 0
+    assert "RANKING_DEGRADED" in out["indeed:1"].concerns
