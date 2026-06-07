@@ -115,3 +115,39 @@ def test_gemini_generate_structured_sets_config_and_returns_text():
     assert cfg.response_mime_type == "application/json"
     assert cfg.response_schema is _Schema
     assert cfg.thinking_config.thinking_budget == 0
+
+
+def test_nim_generate_sends_seed_and_json_object():
+    import json
+    from cvflow.llm import NimProvider
+
+    captured = {}
+
+    def post_fn(url, headers, body):
+        captured["body"] = json.loads(body)
+        return json.dumps({"choices": [{"message": {"content": "[]"}}]})
+
+    prov = NimProvider(base_url="https://x/v1", api_key="k", model="m",
+                       max_requests_per_minute=40, post_fn=post_fn)
+    prov.generate("p", temperature=0, seed=11, top_p=0.1, max_tokens=200, json_object=True)
+    b = captured["body"]
+    assert b["temperature"] == 0
+    assert b["seed"] == 11
+    assert b["top_p"] == 0.1
+    assert b["max_tokens"] == 200
+    assert b["response_format"] == {"type": "json_object"}
+
+
+def test_nim_generate_default_no_extra_params():
+    import json
+    from cvflow.llm import NimProvider
+    captured = {}
+
+    def post_fn(url, headers, body):
+        captured["body"] = json.loads(body)
+        return json.dumps({"choices": [{"message": {"content": "ok"}}]})
+
+    NimProvider(base_url="https://x/v1", api_key="k", model="m",
+                max_requests_per_minute=40, post_fn=post_fn).generate("p")
+    assert "seed" not in captured["body"]
+    assert "response_format" not in captured["body"]

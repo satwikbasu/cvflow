@@ -177,16 +177,36 @@ class NimProvider:
             raise RpmExceeded(f"NIM RPM budget reached ({self._max_rpm})")
         self._count += 1
 
-    def generate(self, prompt: str) -> str:
+    def generate(
+        self,
+        prompt: str,
+        *,
+        temperature: float | None = None,
+        seed: int | None = None,
+        top_p: float | None = None,
+        max_tokens: int | None = None,
+        json_object: bool = False,
+    ) -> str:
         self._spend_one()
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
         }
-        body = json.dumps(
-            {"model": self._model, "messages": [{"role": "user", "content": prompt}]}
-        )
-        raw = self._post(self._url, headers, body)
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if temperature is not None:
+            payload["temperature"] = temperature
+        if seed is not None:
+            payload["seed"] = seed
+        if top_p is not None:
+            payload["top_p"] = top_p
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
+        if json_object:
+            payload["response_format"] = {"type": "json_object"}
+        raw = self._post(self._url, headers, json.dumps(payload))
         try:
             data = json.loads(raw)
             return str(data["choices"][0]["message"]["content"])
