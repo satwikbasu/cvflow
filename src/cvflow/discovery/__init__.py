@@ -244,7 +244,8 @@ def _jobspy_search(
     location: str,
     results_wanted: int,
     hours_old: int,
-    job_type: str | None = None,
+    country_indeed: str = "usa",
+    linkedin_fetch_description: bool = False,
 ) -> list[dict[str, Any]]:
     from jobspy import scrape_jobs
 
@@ -254,7 +255,8 @@ def _jobspy_search(
         location=location,
         results_wanted=results_wanted,
         hours_old=hours_old,
-        job_type=job_type,
+        country_indeed=country_indeed,
+        linkedin_fetch_description=linkedin_fetch_description,
         enforce_annual_salary=True,
     )
     if df is None or df.empty:
@@ -281,7 +283,8 @@ class DiscoveryService:
         sleep: Callable[[float], None] = time.sleep,
         exclude_title_keywords: list[str] | None = None,
         min_ctc_lpa: int = 0,
-        job_type: str | None = None,
+        country_indeed: str = "usa",
+        linkedin_fetch_description: bool = False,
         max_rank_candidates: int = 40,
     ) -> None:
         self._store = store
@@ -297,7 +300,8 @@ class DiscoveryService:
         self._sleep = sleep
         self._exclude_title_keywords = [k.lower() for k in (exclude_title_keywords or [])]
         self._min_ctc_lpa = min_ctc_lpa
-        self._job_type = job_type
+        self._country_indeed = country_indeed
+        self._linkedin_fetch_description = linkedin_fetch_description
         self._max_rank_candidates = max_rank_candidates
 
     def _gather_rows(self) -> list[dict[str, Any]]:
@@ -312,7 +316,8 @@ class DiscoveryService:
                             location=location,
                             results_wanted=self._results_wanted_per_site,
                             hours_old=self._hours_old,
-                            job_type=self._job_type,
+                            country_indeed=self._country_indeed,
+                            linkedin_fetch_description=self._linkedin_fetch_description,
                         )
                     )
                 except Exception as exc:  # noqa: BLE001

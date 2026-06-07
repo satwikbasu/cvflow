@@ -261,7 +261,7 @@ def test_prefilter_drops_excluded_titles_and_below_floor_salary() -> None:
     assert kept == {"linkedin:3", "linkedin:4"}
 
 
-def test_prefilter_passes_job_type_to_search_fn() -> None:
+def test_discovery_passes_country_and_fetch_description_to_search_fn() -> None:
     store = ApplicationStore(":memory:")
     captured = {}
 
@@ -269,13 +269,17 @@ def test_prefilter_passes_job_type_to_search_fn() -> None:
         captured.update(kwargs)
         return []
 
-    DiscoveryService(
+    svc = DiscoveryService(
         store=store, ranker=_RecordingRanker(), search_fn=search_fn,
         search_terms=["x"], locations=["Remote"], sites=["indeed"],
         results_wanted_per_site=10, hours_old=72, top_n=5,
-        throttle_seconds=0.0, sleep=lambda s: None, job_type="fulltime",
-    ).discover()
-    assert captured.get("job_type") == "fulltime"
+        throttle_seconds=0.0, sleep=lambda s: None,
+        country_indeed="india", linkedin_fetch_description=True,
+    )
+    svc.discover()
+    assert captured.get("country_indeed") == "india"
+    assert captured.get("linkedin_fetch_description") is True
+    assert "job_type" not in captured  # not sent (Indeed hours_old conflict)
 
 
 def test_ranker_prompt_includes_preferences_and_parses_score_concerns() -> None:
