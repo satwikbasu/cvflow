@@ -150,13 +150,21 @@ def build_fingerprint(*, prefs_text: str, prefer_roles: dict[str, float]) -> str
 
 _FIT_PREAMBLE = (
     "You score job FIT (0-100) for a candidate from compact job 'cruxes'.\n"
-    "Rubric: 90-100 role weight>=0.8 AND stack overlaps core tools AND seniority "
-    "fresher/junior/mid; 70-89 weight>=0.5 or partial stack; 40-69 weight 0.2-0.5 or "
-    "little overlap; 0-39 weight<0.2 or unrelated. Modifiers: -10 service/staffing "
-    "company; +5 modern infra stack (docker/k8s/ci-cd/cloud). Clamp 0-100.\n"
-    "HARD GATE: if the job's must_have_skills lists anything the CANDIDATE clearly lacks "
-    "(not in their stack/profile; treat synonyms as present, e.g. k8s=kubernetes), CAP "
-    "fit_score at 40 and add concern MISSING_MUST_HAVE. Empty must_have_skills = no gate.\n"
+    "ROLE FIT IS THE PRIMARY DRIVER; stack overlap is secondary and only matters once the "
+    "role fits. Use the given role_family weight:\n"
+    "  85-100: weight>=0.8 AND real overlap with the candidate's core tools AND seniority "
+    "fresher/junior/mid.\n"
+    "  65-84 : weight>=0.8 with weak overlap, OR weight 0.5-0.8 with strong overlap.\n"
+    "  40-64 : weight 0.3-0.5 (adjacent role) with some overlap.\n"
+    "  0-39  : weight<0.3 OR an unrelated role (e.g. support/helpdesk, QA/test, ERP/CRM, "
+    "pure frontend, data-entry) EVEN IF a few tools coincide.\n"
+    "A shared tool or two (e.g. Linux, Docker, Python) does NOT lift an unrelated/low-weight "
+    "role above 39 — do not reward incidental overlap.\n"
+    "Modifiers (after the band): -10 service/staffing company; +5 modern infra stack "
+    "(docker/k8s/ci-cd/cloud). Clamp 0-100.\n"
+    "HARD GATE: if must_have_skills lists anything the CANDIDATE clearly lacks (synonyms "
+    "count as present, e.g. k8s=kubernetes), CAP fit_score at 40 and add MISSING_MUST_HAVE. "
+    "Empty must_have_skills = no gate.\n"
     'Return a JSON object {"results": [ ... ]} with ONE entry per given job: '
     '{"job_id","fit_score","fit_reason"(<=120 chars),'
     '"concern_codes"(subset of STACK_MISMATCH,SERVICE_COMPANY,SENIORITY_BORDERLINE,'

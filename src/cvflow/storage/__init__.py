@@ -90,9 +90,10 @@ CREATE TABLE IF NOT EXISTS digest_slots (
     presented_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS job_cruxes (
-    job_id       TEXT PRIMARY KEY,
-    crux_json    TEXT NOT NULL,
-    distilled_at TEXT NOT NULL
+    job_id        TEXT PRIMARY KEY,
+    crux_json     TEXT NOT NULL,
+    distilled_at  TEXT NOT NULL,
+    crux_version  TEXT
 );
 CREATE TABLE IF NOT EXISTS decisions (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -147,6 +148,9 @@ class ApplicationStore:
                 self._conn.execute(
                     f"ALTER TABLE applications ADD COLUMN {col} {col_type}"
                 )
+        crux_cols = {row["name"] for row in self._conn.execute("PRAGMA table_info(job_cruxes)")}
+        if "crux_version" not in crux_cols:
+            self._conn.execute("ALTER TABLE job_cruxes ADD COLUMN crux_version TEXT")
 
     def _row_to_app(self, row: sqlite3.Row) -> Application:
         return Application(
@@ -302,20 +306,27 @@ class ApplicationStore:
         ).fetchone()
         return JDAnalysis.from_json(row["analysis"]) if row is not None else None
 
-    def save_crux(self, job_id: str, crux_json: str) -> None:
+    def save_crux(self, job_id: str, crux_json: str, *, version: str = "") -> None:
         self._conn.execute(
-            "INSERT INTO job_cruxes (job_id, crux_json, distilled_at) VALUES (?, ?, ?) "
+            "INSERT INTO job_cruxes (job_id, crux_json, distilled_at, crux_version) "
+            "VALUES (?, ?, ?, ?) "
             "ON CONFLICT(job_id) DO UPDATE SET crux_json = excluded.crux_json, "
-            "distilled_at = excluded.distilled_at",
-            (job_id, crux_json, _now()),
+            "distilled_at = excluded.distilled_at, crux_version = excluded.crux_version",
+            (job_id, crux_json, _now(), version),
         )
         self._conn.commit()
 
-    def get_crux(self, job_id: str) -> str | None:
+    def get_crux(self, job_id: str, *, version: str | None = None) -> str | None:
+        """Return the cached crux JSON. When ``version`` is given, only returns it if the
+        stored crux was distilled at that version (else None -> caller re-distills)."""
         row = self._conn.execute(
-            "SELECT crux_json FROM job_cruxes WHERE job_id = ?", (job_id,)
+            "SELECT crux_json, crux_version FROM job_cruxes WHERE job_id = ?", (job_id,)
         ).fetchone()
-        return row["crux_json"] if row is not None else None
+        if row is None:
+            return None
+        if version is not None and (row["crux_version"] or "") != version:
+            return None
+        return str(row["crux_json"])
 
     def add_decision(
         self, *, job_id: str, decision: str, cohort: str | None = None,
