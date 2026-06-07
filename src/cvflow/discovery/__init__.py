@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -68,6 +69,24 @@ def _num(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return None if f != f else f  # NaN check
+
+
+_YEARS_RE = re.compile(r"(\d+)")
+
+
+def _parse_min_years(text: str | None) -> int | None:
+    """Parse the minimum years from a Naukri ``experience_range`` (e.g. '2-4 Yrs').
+
+    Returns 0 for fresher/entry-level, the leading integer for a range/'5+', and
+    None when no number is stated (never fabricate — invariant 2).
+    """
+    if not text:
+        return None
+    t = text.strip().lower()
+    if "fresher" in t or "entry" in t:
+        return 0
+    m = _YEARS_RE.search(t)
+    return int(m.group(1)) if m else None
 
 
 def normalize_rows(rows: list[dict[str, Any]]) -> list[JobPosting]:
@@ -175,9 +194,11 @@ class DiscoveryService:
         max_distill_per_cohort: int = 60,
         top_n_per_cohort: int = 5,
         distill_seed: int = 73,
+        yoe_ceiling: int | None = None,
     ) -> None:
         self._store = store
         self._search_fn = search_fn
+        self._yoe_ceiling = yoe_ceiling
         self._search_terms = search_terms
         self._locations = locations
         self._sites = sites
@@ -242,6 +263,15 @@ class DiscoveryService:
             if cap is not None and (p.currency or "INR").upper() == "INR":
                 if cap / 100_000 < self._min_ctc_lpa:
                     logger.info("prefilter drop (salary) %s: %s", p.job_id, cap)
+                    continue
+            # Naukri structured YOE gate (when experience_range is stated): drop only on a
+            # parsed minimum above the ceiling — an unparseable/absent range is kept.
+            if self._yoe_ceiling is not None and p.experience_range:
+                min_years = _parse_min_years(p.experience_range)
+                if min_years is not None and min_years > self._yoe_ceiling:
+                    logger.info(
+                        "prefilter drop (experience) %s: %s", p.job_id, p.experience_range
+                    )
                     continue
             kept.append(p)
         return kept

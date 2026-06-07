@@ -142,6 +142,7 @@ def _build(config: Any) -> tuple[Any, Any, Any, Any, Any]:
         top_ctc_lpa=config.preferences.top_ctc_lpa,
         max_distill_per_cohort=config.discovery.max_distill_per_cohort,
         top_n_per_cohort=config.discovery.top_n_per_cohort,
+        yoe_ceiling=config.preferences.yoe_have + config.preferences.yoe_buffer,
     )
     notify = HermesNotifier()
     otp = OtpCoordinator(

@@ -292,3 +292,37 @@ def test_discover_drops_jobs_via_exclude_when():
     )
     result = svc.discover()
     assert result["M"] == [] and result["N"] == []  # dropped by exclude_when
+
+
+def test_parse_min_years():
+    from cvflow.discovery import _parse_min_years
+    assert _parse_min_years("2-4 Yrs") == 2
+    assert _parse_min_years("5+ years") == 5
+    assert _parse_min_years("0-1 Yrs") == 0
+    assert _parse_min_years("Fresher") == 0
+    assert _parse_min_years("") is None
+    assert _parse_min_years(None) is None
+    assert _parse_min_years("competitive") is None  # unparseable -> keep (never fabricate)
+
+
+def test_prefilter_drops_naukri_experience_over_ceiling():
+    store = ApplicationStore(":memory:")
+    rows = [
+        _row("1", site="naukri", title="DevOps Engineer", experience_range="6-9 Yrs"),
+        _row("2", site="naukri", title="DevOps Engineer", experience_range="0-2 Yrs"),
+        _row("3", site="naukri", title="DevOps Engineer", experience_range="competitive"),
+    ]
+    svc = _two_stage_service(store, lambda **k: rows, throttle_seconds=0.0,
+                             sleep=lambda s: None, locations=["Remote"], yoe_ceiling=3)
+    result = svc.discover()
+    # 6-9 dropped (min 6 > 3); 0-2 kept; unparseable kept (never drop on absent fact)
+    assert _all_ids(result) == {"naukri:2", "naukri:3"}
+
+
+def test_prefilter_no_ceiling_keeps_high_experience():
+    store = ApplicationStore(":memory:")
+    rows = [_row("1", site="naukri", title="DevOps Engineer", experience_range="8-10 Yrs")]
+    svc = _two_stage_service(store, lambda **k: rows, throttle_seconds=0.0,
+                             sleep=lambda s: None, locations=["Remote"])  # no yoe_ceiling
+    result = svc.discover()
+    assert _all_ids(result) == {"naukri:1"}
