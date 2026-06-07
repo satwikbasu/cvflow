@@ -157,3 +157,41 @@ def test_fit_scores_tolerates_non_dict_entries():
     out = fit_scores([crux], fingerprint="FP", prefer_roles={}, provider=_Prov())
     assert out["indeed:1"].fit_score == 0
     assert "RANKING_DEGRADED" in out["indeed:1"].concerns
+
+
+def _crux_for(jid):
+    from cvflow.discovery.distill import Crux
+    return Crux(job_id=jid, role_family="devops", seniority_signal="junior",
+               min_years_required=1, max_years_required=2, work_mode="remote",
+               location_text="Remote", country="india", stated_salary=None, tech_stack=[],
+               night_shift_only=False, app_maintenance_focus=False, company_type="product",
+               red_flags=[], applicant_instructions=None, one_line="x")
+
+
+def test_fit_scores_salvages_malformed_json_missing_comma():
+    from cvflow.discovery.benchmark import fit_scores
+    bad = ('[{"job_id":"a","fit_score":80,"fit_reason":"ok","concern_codes":[]} '
+           '{"job_id":"b","fit_score":60,"fit_reason":"y","concern_codes":["SERVICE_COMPANY"]}]')
+
+    class _Prov:
+        def generate(self, prompt, **kw):
+            return bad
+
+    out = fit_scores([_crux_for("a"), _crux_for("b")], fingerprint="FP",
+                     prefer_roles={}, provider=_Prov())
+    assert out["a"].fit_score == 80
+    assert out["b"].fit_score == 60
+    assert out["b"].concerns == ["SERVICE_COMPANY"]
+    assert "RANKING_DEGRADED" not in out["a"].concerns
+
+
+def test_fit_scores_degrades_when_unsalvageable():
+    from cvflow.discovery.benchmark import fit_scores
+
+    class _Prov:
+        def generate(self, prompt, **kw):
+            return "total garbage no json here"
+
+    out = fit_scores([_crux_for("a")], fingerprint="FP", prefer_roles={}, provider=_Prov())
+    assert out["a"].fit_score == 0
+    assert "RANKING_DEGRADED" in out["a"].concerns

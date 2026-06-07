@@ -139,6 +139,42 @@ def _fit_view(crux: Any) -> dict[str, Any]:
     }
 
 
+def _salvage_objects(raw: str) -> list[Any]:
+    """Recover top-level JSON objects from a malformed array (missing commas, truncated
+    tail). Scans brace depth while respecting string literals; each balanced {...} that
+    parses is kept, the rest dropped. One garbled entry never zeroes the cohort."""
+    out: list[Any] = []
+    depth = 0
+    start: int | None = None
+    in_str = False
+    esc = False
+    for i, ch in enumerate(raw):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            if depth > 0:
+                depth -= 1
+                if depth == 0 and start is not None:
+                    try:
+                        out.append(json.loads(raw[start : i + 1]))
+                    except ValueError:
+                        pass
+                    start = None
+    return out
+
+
 def _unwrap_array(raw: str) -> str:
     """json_object mode may return {"jobs":[...]} or {"results":[...]}; find the array."""
     raw = raw.strip()
@@ -175,12 +211,24 @@ def fit_scores(
     try:
         raw = provider.generate(
             prompt, temperature=0, seed=FIT_SEED, top_p=0.1,
-            max_tokens=min(4096, 60 * len(cruxes) + 200), json_object=True,
+            max_tokens=min(4096, 90 * len(cruxes) + 300), json_object=True,
         )
-        # response_format=json_object may wrap the array in an object; accept either.
-        parsed = json.loads(_unwrap_array(raw))
     except Exception as exc:  # noqa: BLE001 — degrade, never lose the cohort
-        logger.warning("fit scoring failed (%s); degrading cohort to fit 0", exc)
+        logger.warning("fit scoring call failed (%s); degrading cohort to fit 0", exc)
+        return {jid: FitResult(0, "(ranking unavailable)", ["RANKING_DEGRADED"]) for jid in ids}
+    # response_format=json_object may wrap the array in an object; accept either, and
+    # salvage individual objects if the model emits slightly-malformed JSON (missing
+    # commas, a truncated tail) so one bad token doesn't zero the whole cohort.
+    try:
+        parsed: list[Any] = json.loads(_unwrap_array(raw))
+        if not isinstance(parsed, list):
+            parsed = _salvage_objects(raw)
+    except Exception:  # noqa: BLE001
+        parsed = _salvage_objects(raw)
+    if not parsed:
+        logger.warning(
+            "fit scoring unparseable (raw[:200]=%r); degrading cohort to fit 0", raw[:200]
+        )
         return {jid: FitResult(0, "(ranking unavailable)", ["RANKING_DEGRADED"]) for jid in ids}
     out: dict[str, FitResult] = {}
     for entry in parsed if isinstance(parsed, list) else []:

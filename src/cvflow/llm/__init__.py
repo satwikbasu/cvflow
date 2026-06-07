@@ -136,9 +136,9 @@ def _urllib_post(url: str, headers: dict[str, str], body: str) -> str:
     # urllib User-Agent with a 403/1010; send a browser-like UA.
     headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) cvflow/1.0", **headers}
     req = Request(url, data=body.encode(), headers=headers, method="POST")
-    # NIM free-tier latency can swing past a minute; give the call room. The cron
-    # path has no 120s agent limit, and the RPM budget still guards call volume.
-    with urlopen(req, timeout=180) as resp:  # noqa: S310 (https by config)
+    # NIM free-tier latency can swing past two minutes for a whole-cohort fit call;
+    # give it room. The cron path has no agent limit, and RPM still guards volume.
+    with urlopen(req, timeout=300) as resp:  # noqa: S310 (https by config)
         if resp.status != 200:
             raise LLMError(f"NIM POST {url} -> HTTP {resp.status}")
         raw: bytes = resp.read()
