@@ -109,3 +109,25 @@ def test_apply_reports_unknown_ordinal():
     res = handle_gate_command(command="apply", args="1 9", user_id=1,
                               authorized_user_id=1, store=s)
     assert "9" in res.message
+
+
+def test_apply_records_a_decision():
+    from cvflow.gate import handle_gate_command
+    s = _pending_store()  # has indeed:a, indeed:b in pending_review + digest slots
+    handle_gate_command(command="apply", args="1", user_id=1, authorized_user_id=1, store=s)
+    rows = s.recent_decisions(10)
+    assert any(r["job_id"] == "indeed:a" and r["decision"] == "apply" for r in rows)
+
+
+def test_decision_recording_failure_does_not_block_gate(monkeypatch):
+    from cvflow.gate import handle_gate_command
+    from cvflow.statemachine import Status
+    s = _pending_store()
+
+    def boom(**kwargs):
+        raise RuntimeError("log write failed")
+
+    monkeypatch.setattr(s, "add_decision", boom)
+    res = handle_gate_command(command="apply", args="1", user_id=1, authorized_user_id=1, store=s)
+    assert res.handled is True
+    assert s.get("indeed:a").status == Status.APPROVED  # gate still worked

@@ -12,10 +12,13 @@ which is a Hermes built-in — keeping a distinct verb avoids any collision).
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from cvflow.statemachine import IllegalTransition, Status
 from cvflow.storage import ApplicationStore, UnknownJob
+
+logger = logging.getLogger("cvflow.gate")
 
 __all__ = ["GateResult", "handle_gate_command", "resolve_targets"]
 
@@ -77,6 +80,25 @@ def resolve_targets(args: str, store: ApplicationStore) -> tuple[list[str], list
     return resolved, unknown
 
 
+def _record(store: ApplicationStore, command: str, job_id: str) -> None:
+    """Best-effort decision logging for analytics (Phase 14D). Never blocks the gate."""
+    try:
+        crux_json = store.get_crux(job_id)
+        role_family = company_type = None
+        if crux_json:
+            import json
+
+            c = json.loads(crux_json)
+            role_family, company_type = c.get("role_family"), c.get("company_type")
+        app = store.get(job_id)
+        store.add_decision(
+            job_id=job_id, decision=command, role_family=role_family,
+            company_type=company_type, company=app.company if app else None,
+        )
+    except Exception as exc:  # noqa: BLE001 — analytics must never break approval (invariant 1)
+        logger.warning("decision logging failed for %s: %s", job_id, exc)
+
+
 def handle_gate_command(
     *,
     command: str,
@@ -111,6 +133,7 @@ def handle_gate_command(
             else:
                 store.set_status(job_id, Status.SKIPPED)
             ok.append(job_id)
+            _record(store, command, job_id)
         except UnknownJob:
             problems.append(f"{job_id} (no such job)")
         except IllegalTransition:
