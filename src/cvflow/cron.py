@@ -86,9 +86,10 @@ def run_job(
 def _build(config: Any) -> tuple[Any, Any, Any, Any, Any]:
     """Construct the minimal services for the cron jobs (NO browser/Automator)."""
     from cvflow.auth import OtpCoordinator
-    from cvflow.discovery import DiscoveryService, LLMRanker, format_preferences
+    from cvflow.discovery import DiscoveryService
+    from cvflow.discovery.benchmark import build_fingerprint
     from cvflow.knowledge import KnowledgeBase
-    from cvflow.llm import NimProvider
+    from cvflow.llm import GeminiProvider, NimProvider
     from cvflow.notify import HermesNotifier
     from cvflow.storage import ApplicationStore
 
@@ -102,11 +103,16 @@ def _build(config: Any) -> tuple[Any, Any, Any, Any, Any]:
         model=config.llm.brain.model,
         max_requests_per_minute=config.llm.brain.max_requests_per_minute,
     )
+    gemini = GeminiProvider(
+        api_key=config.llm.tailoring.api_key,
+        model=config.llm.tailoring.model,
+        max_requests_per_day=config.llm.tailoring.max_requests_per_day,
+    )
+    fingerprint = build_fingerprint(
+        prefs_text=knowledge.full_context(), prefer_roles=config.preferences.prefer_roles
+    )
     discovery = DiscoveryService(
         store,
-        LLMRanker(
-            brain, knowledge.full_context(), preferences=format_preferences(config.preferences)
-        ),
         search_terms=config.discovery.search_terms,
         locations=config.discovery.locations,
         sites=config.discovery.sites,
@@ -117,6 +123,16 @@ def _build(config: Any) -> tuple[Any, Any, Any, Any, Any]:
         min_ctc_lpa=config.preferences.min_ctc_lpa,
         country_indeed=config.discovery.country_indeed,
         linkedin_fetch_description=config.discovery.linkedin_fetch_description,
+        gemini=gemini,
+        brain=brain,
+        fingerprint=fingerprint,
+        prefer_roles=config.preferences.prefer_roles,
+        exclude_when=config.preferences.exclude_when,
+        fit_weight=config.preferences.fit_weight,
+        comp_weight=config.preferences.comp_weight,
+        top_ctc_lpa=config.preferences.top_ctc_lpa,
+        max_distill_per_cohort=config.discovery.max_distill_per_cohort,
+        top_n_per_cohort=config.discovery.top_n_per_cohort,
     )
     notify = HermesNotifier()
     otp = OtpCoordinator(

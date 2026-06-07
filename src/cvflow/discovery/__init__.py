@@ -15,20 +15,17 @@ free-tier LLM. Tests are fully mocked; resolve consent/redaction before live run
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
-from typing import Any, Protocol
+from dataclasses import dataclass
+from typing import Any
 
 __all__ = [
     "JobPosting",
-    "RankedJob",
-    "LLMRanker",
+    "BenchmarkedJob",
     "DiscoveryService",
     "normalize_rows",
-    "format_preferences",
 ]
 
 logger = logging.getLogger("cvflow.discovery")
@@ -48,15 +45,6 @@ class JobPosting:
     max_amount: float | None = None
     currency: str | None = None
     experience_range: str | None = None
-
-
-@dataclass(frozen=True)
-class RankedJob:
-    posting: JobPosting
-    summary: str
-    rationale: str
-    fit_score: int = 0
-    concerns: list[str] = field(default_factory=list)
 
 
 def _stable_job_id(site: str, raw_id: str, url: str) -> str:
@@ -114,125 +102,6 @@ def normalize_rows(rows: list[dict[str, Any]]) -> list[JobPosting]:
     return out
 
 
-def format_preferences(prefs: Any) -> str:
-    """Render the structured PreferencesConfig into prompt text for the ranker."""
-    return (
-        f"- Candidate has {prefs.yoe_have} year(s) experience; only roles whose required "
-        f"experience includes {prefs.yoe_have} or are fresher/entry-level.\n"
-        f"- Minimum acceptable CTC: {prefs.min_ctc_lpa} LPA (jobs without stated pay are kept "
-        f"but flagged).\n"
-        f"- Exclude titles containing: {', '.join(prefs.exclude_title_keywords)}.\n"
-        f"- Exclude internships/contract (full-time only).\n"
-        f"- {'Exclude' if prefs.exclude_night_shift_only else 'Allow'} "
-        "night-shift/on-call-only roles.\n"
-        f"- {'Avoid' if prefs.exclude_app_maintenance else 'Allow'} "
-        "pure long-term app-maintenance roles.\n"
-        f"- {'Prefer product-based companies.' if prefs.prefer_product_companies else ''}"
-    )
-
-
-def _strip_code_fence(text: str) -> str:
-    t = text.strip()
-    if t.startswith("```"):
-        t = t.split("\n", 1)[1] if "\n" in t else t
-        if t.endswith("```"):
-            t = t.rsplit("```", 1)[0]
-    return t.strip()
-
-
-class _Provider(Protocol):
-    def generate(self, prompt: str) -> str: ...
-
-
-class _Ranker(Protocol):
-    def rank(self, postings: list[JobPosting], top_n: int) -> list[RankedJob]: ...
-
-
-class LLMRanker:
-    """Ranks candidate postings against the profile via the (Gemini) LLM client."""
-
-    def __init__(
-        self,
-        provider: _Provider,
-        profile_context: str,
-        preferences: str = "",
-        *,
-        batch_size: int = 10,
-    ) -> None:
-        self._provider = provider
-        self._profile_context = profile_context
-        self._preferences = preferences
-        self._batch_size = batch_size
-
-    def _build_prompt(self, postings: list[JobPosting]) -> str:
-        jobs = [
-            {"job_id": p.job_id, "title": p.title, "company": p.company,
-             "location": p.location, "description": p.description[:1500]}
-            for p in postings
-        ]
-        return (
-            "You rank job postings for a candidate and EXCLUDE ones they should not apply to.\n"
-            "Hard rules — OMIT a job entirely if its description implies any of:\n"
-            "  • required minimum experience greater than the candidate's (a stated range must "
-            "include the candidate's years, or be fresher/entry-level);\n"
-            "  • night-shift or rotational-on-call ONLY;\n"
-            "  • the role is primarily long-term maintenance of a large application codebase.\n"
-            "If a fact is NOT stated, do NOT exclude on it — keep the job and add a concern.\n"
-            "Prefer reputable, product-based companies. Use only the given job_ids.\n"
-            "Return ONLY a JSON array, best-first, of "
-            '{"job_id", "fit_score" (0-100), "rationale" (specific, cite the profile/preferences), '
-            '"concerns" (array of short strings, e.g. "salary not stated", "YOE not stated")}.\n\n'
-            f"## Candidate preferences (hard + soft)\n{self._preferences}\n\n"
-            f"## Candidate profile\n{self._profile_context}\n\n"
-            f"## Job postings\n{json.dumps(jobs, indent=2)}\n"
-        )
-
-    def _rank_batch(self, batch: list[JobPosting]) -> list[RankedJob]:
-        by_id = {p.job_id: p for p in batch}
-        raw = self._provider.generate(self._build_prompt(batch))
-        entries = json.loads(_strip_code_fence(raw))
-        ranked: list[RankedJob] = []
-        for entry in entries:
-            posting = by_id.get(str(entry.get("job_id")))
-            if posting is None:
-                continue  # LLM-fabricated / non-candidate id — drop it
-            ranked.append(
-                RankedJob(
-                    posting=posting,
-                    summary=str(entry.get("summary", "")),
-                    rationale=str(entry.get("rationale", "")),
-                    fit_score=int(entry.get("fit_score", 0) or 0),
-                    concerns=[str(c) for c in entry.get("concerns", [])],
-                )
-            )
-        return ranked
-
-    def rank(self, postings: list[JobPosting], top_n: int) -> list[RankedJob]:
-        """Rank in small batches so no single LLM call is huge (the cause of read
-        timeouts that previously degraded the whole digest to unranked).
-
-        Each batch is independent: one failing batch is logged and skipped, the
-        rest survive (invariant 3). Only if EVERY batch fails do we re-raise, so
-        DiscoveryService still falls back to presenting unranked candidates.
-        """
-        ranked: list[RankedJob] = []
-        last_error: Exception | None = None
-        attempted = 0
-        for start in range(0, len(postings), self._batch_size):
-            batch = postings[start : start + self._batch_size]
-            attempted += 1
-            try:
-                ranked.extend(self._rank_batch(batch))
-            except Exception as exc:  # noqa: BLE001 — isolate a slow/garbled batch
-                last_error = exc
-                logger.warning(
-                    "ranking batch %d (%d jobs) failed: %s", attempted, len(batch), exc
-                )
-        if not ranked and last_error is not None:
-            raise last_error  # total failure → let discover() present unranked
-        ranked.sort(key=lambda r: r.fit_score, reverse=True)
-        return ranked[:top_n]
-
 
 SearchFn = Callable[..., list[dict[str, Any]]]
 
@@ -280,7 +149,6 @@ class DiscoveryService:
     def __init__(
         self,
         store: Any,
-        ranker: Any = None,
         search_fn: SearchFn = _jobspy_search,
         *,
         search_terms: list[str],
@@ -309,7 +177,6 @@ class DiscoveryService:
         distill_seed: int = 73,
     ) -> None:
         self._store = store
-        self._ranker = ranker
         self._search_fn = search_fn
         self._search_terms = search_terms
         self._locations = locations

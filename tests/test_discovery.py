@@ -114,7 +114,7 @@ class _StubNim:
 
 def _two_stage_service(store, search_fn, **over):
     kwargs = dict(
-        store=store, ranker=None, search_fn=search_fn,
+        store=store, search_fn=search_fn,
         search_terms=["go developer"], locations=["Remote", "India"],
         sites=["linkedin", "indeed"], results_wanted_per_site=10, hours_old=72,
         top_n=5, throttle_seconds=1.0, sleep=lambda s: None,
@@ -203,7 +203,7 @@ def test_discovery_passes_country_and_fetch_description_to_search_fn() -> None:
         return []
 
     svc = DiscoveryService(
-        store=store, ranker=None, search_fn=search_fn,
+        store=store, search_fn=search_fn,
         search_terms=["x"], locations=["Remote"], sites=["indeed"],
         results_wanted_per_site=10, hours_old=72, top_n=5,
         throttle_seconds=0.0, sleep=lambda s: None,
@@ -244,7 +244,7 @@ def test_discover_two_stage_partitions_and_benchmarks():
                                 "concern_codes": []} for i in ids])
 
     svc = DiscoveryService(
-        store=store, ranker=None, search_fn=lambda **k: rows,
+        store=store, search_fn=lambda **k: rows,
         search_terms=["x"], locations=["Remote"], sites=["linkedin"],
         results_wanted_per_site=10, hours_old=72, top_n=5,
         throttle_seconds=0.0, sleep=lambda s: None,
@@ -282,7 +282,7 @@ def test_discover_drops_jobs_via_exclude_when():
             return "[]"
 
     svc = DiscoveryService(
-        store=store, ranker=None, search_fn=lambda **k: rows,
+        store=store, search_fn=lambda **k: rows,
         search_terms=["x"], locations=["Remote"], sites=["linkedin"],
         results_wanted_per_site=10, hours_old=72, top_n=5, throttle_seconds=0.0,
         sleep=lambda s: None, gemini=_Gem(), brain=_Nim(), fingerprint="FP",

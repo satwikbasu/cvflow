@@ -138,7 +138,8 @@ def test_cvflowtools_has_no_approve_method():
 
 
 def test_discover_dispatches_to_discovery_service():
-    from cvflow.discovery import JobPosting, RankedJob
+    from cvflow.discovery import JobPosting
+    from cvflow.discovery.benchmark import BenchmarkedJob
 
     class FakeDiscovery:
         def __init__(self):
@@ -146,17 +147,17 @@ def test_discover_dispatches_to_discovery_service():
 
         def discover(self):
             self.called = True
-            return [
-                RankedJob(
-                    posting=JobPosting(
-                        job_id="indeed:7", title="Backend Engineer", company="Acme",
-                        location="Remote", description="...", url="https://x/7",
-                        site="indeed", date_posted="2026-06-04",
-                    ),
-                    summary="Strong fit",
-                    rationale="Python + SQL match",
-                )
-            ]
+            p = JobPosting(
+                job_id="indeed:7", title="Backend Engineer", company="Acme",
+                location="Remote", description="...", url="https://x/7",
+                site="indeed", date_posted="2026-06-04",
+            )
+            return {
+                "M": [BenchmarkedJob(posting=p, benchmark=72, fit_score=80,
+                                     fit_reason="Python + SQL match", concerns=[],
+                                     cohort="M", ctc_lpa=18.0)],
+                "N": [],
+            }
 
     fake = FakeDiscovery()
     tools = CvflowTools(
@@ -166,8 +167,9 @@ def test_discover_dispatches_to_discovery_service():
     assert fake.called is True
     assert out[0]["job_id"] == "indeed:7"
     assert out[0]["title"] == "Backend Engineer"
-    assert out[0]["summary"] == "Strong fit"
-    assert out[0]["rationale"] == "Python + SQL match"
+    assert out[0]["cohort"] == "M"
+    assert out[0]["benchmark"] == 72
+    assert out[0]["fit_reason"] == "Python + SQL match"
     assert out[0]["url"] == "https://x/7"
 
 
@@ -220,7 +222,8 @@ def test_build_tools_wires_store_and_knowledge(tmp_path, monkeypatch):
 
 
 def test_discover_returns_url_for_every_job():
-    from cvflow.discovery import JobPosting, RankedJob
+    from cvflow.discovery import JobPosting
+    from cvflow.discovery.benchmark import BenchmarkedJob
     from cvflow.storage import ApplicationStore
 
     class _StubDiscovery:
@@ -230,7 +233,8 @@ def test_discover_returns_url_for_every_job():
                 location="Remote", description="d", url="https://jobs/7",
                 site="indeed", date_posted="2026-06-04",
             )
-            return [RankedJob(posting=p, summary="s", rationale="r")]
+            return {"M": [], "N": [BenchmarkedJob(posting=p, benchmark=70, fit_score=70,
+                                                  fit_reason="r", concerns=[], cohort="N")]}
 
     tools = CvflowTools(
         store=ApplicationStore(":memory:"), knowledge=None,

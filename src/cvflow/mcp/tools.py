@@ -184,20 +184,18 @@ class CvflowTools:
     # ------------------------------------------------------------------
 
     def discover(self) -> list[dict[str, Any]]:
-        """Run discovery and return a list of ranked-job dicts."""
-        ranked = self._discovery.discover()
-        return [
-            {
-                "job_id": rj.posting.job_id,
-                "title": rj.posting.title,
-                "company": rj.posting.company,
-                "location": rj.posting.location,
-                "url": rj.posting.url,
-                "summary": rj.summary,
-                "rationale": rj.rationale,
-            }
-            for rj in ranked
-        ]
+        """Run discovery and return ranked-job dicts (M cohort first, then N)."""
+        result = self._discovery.discover()
+        out: list[dict[str, Any]] = []
+        for bj in result.get("M", []) + result.get("N", []):
+            out.append({
+                "job_id": bj.posting.job_id, "title": bj.posting.title,
+                "company": bj.posting.company, "location": bj.posting.location,
+                "url": bj.posting.url, "cohort": bj.cohort, "benchmark": bj.benchmark,
+                "fit_score": bj.fit_score, "fit_reason": bj.fit_reason,
+                "concerns": bj.concerns, "ctc_lpa": bj.ctc_lpa,
+            })
+        return out
 
     # ------------------------------------------------------------------
     # Analysis
@@ -241,7 +239,8 @@ def build_tools(config: Any) -> CvflowTools:
     tailor = ResumeTailor(tailoring, parse_master(master_root))
 
     from cvflow.analysis import JDAnalyzer
-    from cvflow.discovery import DiscoveryService, LLMRanker, format_preferences
+    from cvflow.discovery import DiscoveryService
+    from cvflow.discovery.benchmark import build_fingerprint
     from cvflow.llm import NimProvider
 
     brain = NimProvider(
@@ -250,12 +249,11 @@ def build_tools(config: Any) -> CvflowTools:
         model=config.llm.brain.model,
         max_requests_per_minute=config.llm.brain.max_requests_per_minute,
     )
-    ranker = LLMRanker(
-        brain, knowledge.full_context(), preferences=format_preferences(config.preferences)
+    fingerprint = build_fingerprint(
+        prefs_text=knowledge.full_context(), prefer_roles=config.preferences.prefer_roles
     )
     discovery = DiscoveryService(
         store,
-        ranker,
         search_terms=config.discovery.search_terms,
         locations=config.discovery.locations,
         sites=config.discovery.sites,
@@ -266,6 +264,16 @@ def build_tools(config: Any) -> CvflowTools:
         min_ctc_lpa=config.preferences.min_ctc_lpa,
         country_indeed=config.discovery.country_indeed,
         linkedin_fetch_description=config.discovery.linkedin_fetch_description,
+        gemini=tailoring,
+        brain=brain,
+        fingerprint=fingerprint,
+        prefer_roles=config.preferences.prefer_roles,
+        exclude_when=config.preferences.exclude_when,
+        fit_weight=config.preferences.fit_weight,
+        comp_weight=config.preferences.comp_weight,
+        top_ctc_lpa=config.preferences.top_ctc_lpa,
+        max_distill_per_cohort=config.discovery.max_distill_per_cohort,
+        top_n_per_cohort=config.discovery.top_n_per_cohort,
     )
     analyzer = JDAnalyzer(brain)
 
