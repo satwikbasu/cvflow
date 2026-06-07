@@ -47,6 +47,7 @@ class JobPosting:
     min_amount: float | None = None
     max_amount: float | None = None
     currency: str | None = None
+    experience_range: str | None = None
 
 
 @dataclass(frozen=True)
@@ -107,6 +108,7 @@ def normalize_rows(rows: list[dict[str, Any]]) -> list[JobPosting]:
                 min_amount=_num(row.get("min_amount")),
                 max_amount=_num(row.get("max_amount")),
                 currency=_clean(row.get("currency")) or None,
+                experience_range=_clean(row.get("experience_range")) or None,
             )
         )
     return out

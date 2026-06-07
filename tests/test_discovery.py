@@ -377,3 +377,12 @@ def test_discover_caps_candidates_by_recency_before_ranking() -> None:
     assert len(ranker.seen_candidates) == 10
     dates = [p.date_posted for p in ranker.seen_candidates]
     assert dates == sorted(dates, reverse=True)  # newest first
+
+
+def test_normalize_carries_experience_range() -> None:
+    p = normalize_rows([_row("1", experience_range="2-4 Yrs")])[0]
+    assert p.experience_range == "2-4 Yrs"
+
+
+def test_normalize_experience_range_absent_is_none() -> None:
+    assert normalize_rows([_row("1")])[0].experience_range is None
