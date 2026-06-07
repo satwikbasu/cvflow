@@ -326,3 +326,19 @@ def test_prefilter_no_ceiling_keeps_high_experience():
                              sleep=lambda s: None, locations=["Remote"])  # no yoe_ceiling
     result = svc.discover()
     assert _all_ids(result) == {"naukri:1"}
+
+
+def test_discover_logs_stage_timings(caplog):
+    import logging
+    store = ApplicationStore(":memory:")
+    rows = [_row("1", title="DevOps Engineer", min_amount=2_000_000,
+                 max_amount=2_300_000, currency="INR")]
+    svc = _two_stage_service(store, lambda **k: rows, throttle_seconds=0.0,
+                             sleep=lambda s: None, locations=["Remote"])
+    with caplog.at_level(logging.INFO, logger="cvflow.discovery"):
+        svc.discover()
+    msgs = " ".join(r.message for r in caplog.records)
+    assert "stage scrape" in msgs
+    assert "stage prefilter" in msgs
+    assert "cohort M" in msgs
+    assert "discover total" in msgs

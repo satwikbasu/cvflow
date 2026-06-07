@@ -7,6 +7,7 @@ distiller is told never to infer salary or YOE — absent facts become null/"unk
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel
@@ -98,16 +99,20 @@ def distill_all(
 ) -> list[Crux]:
     """Cache-aware distillation. One bad JD is logged + skipped, never aborts the run."""
     out: list[Crux] = []
-    for p in postings:
+    total = len(postings)
+    for i, p in enumerate(postings, start=1):
         cached = store.get_crux(p.job_id)
         if cached is not None:
+            logger.info("distill %d/%d %s (cached)", i, total, p.job_id)
             out.append(Crux.model_validate_json(cached))
             continue
+        t = time.monotonic()
         try:
             crux = distiller.distill(p)
         except Exception as exc:  # noqa: BLE001 — isolate a bad/garbled/over-budget JD
-            logger.warning("distill failed for %s: %s", p.job_id, exc)
+            logger.warning("distill %d/%d %s FAILED: %s", i, total, p.job_id, exc)
             continue
         store.save_crux(p.job_id, crux.model_dump_json())
+        logger.info("distill %d/%d %s ok (%.1fs)", i, total, p.job_id, time.monotonic() - t)
         out.append(crux)
     return out

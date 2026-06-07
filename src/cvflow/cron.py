@@ -167,8 +167,17 @@ def main(
     if len(args) != 1:
         raise SystemExit("usage: python -m cvflow.cron <discover|sweep-otp|heartbeat|learn>")
     if services is None:
+        import logging
+
         from cvflow.config import load_config
 
+        # Real invocation: stream INFO progress (stage timings, per-job distill) to stdout
+        # so a live run is observable. Tests inject `services` and skip this.
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+            datefmt="%H:%M:%S",
+        )
         services = _build(load_config("config.yaml"))
     store, discovery, otp, notify, brain = services
     try:

@@ -290,7 +290,12 @@ class DiscoveryService:
             : self._max_distill_per_cohort
         ]
         distiller = Distiller(self._gemini, seed=self._distill_seed)
+        t = time.monotonic()
         cruxes = distill_all(capped, self._store, distiller)
+        logger.info(
+            "cohort %s: distilled %d/%d jobs in %.1fs",
+            cohort, len(cruxes), len(capped), time.monotonic() - t,
+        )
         kept_cruxes: list[Crux] = []
         for c in cruxes:
             excluded, reason = crux_excluded(c.model_dump(), self._exclude_when)
@@ -298,11 +303,17 @@ class DiscoveryService:
                 logger.info("exclude_when drop %s: %s", c.job_id, reason)
                 continue
             kept_cruxes.append(c)
+        logger.info("cohort %s: %d kept after exclude_when gate", cohort, len(kept_cruxes))
         by_id = {p.job_id: p for p in capped}
         jobs = {c.job_id: by_id[c.job_id] for c in kept_cruxes}
+        t = time.monotonic()
         fits = fit_scores(
             kept_cruxes, fingerprint=self._fingerprint,
             prefer_roles=self._prefer_roles, provider=self._brain,
+        )
+        logger.info(
+            "cohort %s: fit-scored %d cruxes in %.1fs (1 NIM call)",
+            cohort, len(kept_cruxes), time.monotonic() - t,
         )
         ranked = benchmark_cohort(
             jobs, fits, cohort=cohort, fit_weight=self._fit_weight,
@@ -313,15 +324,26 @@ class DiscoveryService:
         return ranked[: self._top_n_per_cohort]
 
     def discover(self) -> dict[str, list[BenchmarkedJob]]:
-        postings = self._prefilter(normalize_rows(self._gather_rows()))
+        t0 = time.monotonic()
+        rows = self._gather_rows()
+        logger.info("stage scrape: %d raw rows in %.1fs", len(rows), time.monotonic() - t0)
+        postings = self._prefilter(normalize_rows(rows))
         candidates = [p for p in postings if not self._store.exists(p.job_id)]
-        logger.info("discovery: %d new candidates after prefilter+dedup", len(candidates))
+        logger.info(
+            "stage prefilter+dedup: %d candidates (from %d postings)",
+            len(candidates), len(postings),
+        )
         m = [p for p in candidates if self._has_inr_salary(p)]
         n = [p for p in candidates if not self._has_inr_salary(p)]
+        logger.info("cohorts: M (stated INR pay)=%d, N (no stated pay)=%d", len(m), len(n))
         result = {"M": self._benchmark_cohort(m, "M"), "N": self._benchmark_cohort(n, "N")}
         for cohort in result.values():
             for bj in cohort:
                 p = bj.posting
                 if not self._store.exists(p.job_id):
                     self._store.add(p.job_id, p.company, p.title, p.url)
+        logger.info(
+            "discover total: %.1fs — presenting M=%d, N=%d",
+            time.monotonic() - t0, len(result["M"]), len(result["N"]),
+        )
         return result
