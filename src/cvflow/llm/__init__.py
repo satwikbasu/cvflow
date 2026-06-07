@@ -85,6 +85,40 @@ class GeminiProvider:
         self._cache[cache_key] = text
         return text
 
+    def generate_structured(
+        self,
+        prompt: str,
+        *,
+        schema: Any,
+        seed: int = 0,
+        max_output_tokens: int = 512,
+    ) -> str:
+        """Structured-JSON generation with thinking disabled (fast extraction).
+
+        Returns the raw JSON string. Cache hits never consume budget (mirrors generate()).
+        """
+        from google.genai import types
+
+        cache_key = f"{self._model}\x00structured\x00{seed}\x00{prompt}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+        self._spend_one()
+        config = types.GenerateContentConfig(
+            temperature=0,
+            seed=seed,
+            top_p=0.1,
+            max_output_tokens=max_output_tokens,
+            response_mime_type="application/json",
+            response_schema=schema,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+        )
+        response = self._get_client().models.generate_content(
+            model=self._model, contents=prompt, config=config
+        )
+        text = response.text or ""
+        self._cache[cache_key] = text
+        return text
+
 
 class RpmExceeded(LLMError):
     """Raised when a call would exceed the configured requests-per-minute budget."""

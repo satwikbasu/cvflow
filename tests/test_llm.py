@@ -81,3 +81,37 @@ def test_zero_budget_raises_before_touching_client() -> None:
     with pytest.raises(RpdExceeded):
         p.generate("a")
     assert client.models.calls == []
+
+
+def test_gemini_generate_structured_sets_config_and_returns_text():
+    from cvflow.llm import GeminiProvider
+
+    captured = {}
+
+    class _Models:
+        def generate_content(self, *, model, contents, config):
+            captured["model"] = model
+            captured["config"] = config
+
+            class _R:
+                text = '{"ok": true}'
+
+            return _R()
+
+    class _Client:
+        models = _Models()
+
+    prov = GeminiProvider(api_key="k", model="gemini-2.5-flash", max_requests_per_day=10,
+                          client=_Client())
+
+    class _Schema:  # stand-in pydantic-like schema object
+        pass
+
+    out = prov.generate_structured("prompt", schema=_Schema, seed=42, max_output_tokens=256)
+    assert out == '{"ok": true}'
+    cfg = captured["config"]
+    assert cfg.temperature == 0
+    assert cfg.seed == 42
+    assert cfg.response_mime_type == "application/json"
+    assert cfg.response_schema is _Schema
+    assert cfg.thinking_config.thinking_budget == 0
