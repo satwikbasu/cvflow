@@ -101,7 +101,8 @@ def _build(config: Any) -> tuple[Any, Any, Any, Any, Any]:
         top_n=config.discovery.top_n_to_present,
         exclude_title_keywords=config.preferences.exclude_title_keywords,
         min_ctc_lpa=config.preferences.min_ctc_lpa,
-        job_type=config.preferences.job_type,
+        country_indeed=config.discovery.country_indeed,
+        linkedin_fetch_description=config.discovery.linkedin_fetch_description,
     )
     notify = HermesNotifier()
     otp = OtpCoordinator(
