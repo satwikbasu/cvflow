@@ -6,11 +6,26 @@ India-focused: no FX, no location score (deferred — see spec 14C §8).
 
 from __future__ import annotations
 
+import json
+import logging
 from dataclasses import dataclass, field
+from typing import Any, Protocol
 
 from cvflow.discovery import JobPosting
 
-__all__ = ["FitResult", "BenchmarkedJob", "comp_score", "benchmark_cohort"]
+logger = logging.getLogger("cvflow.discovery.benchmark")
+
+__all__ = [
+    "FitResult",
+    "BenchmarkedJob",
+    "comp_score",
+    "benchmark_cohort",
+    "fit_scores",
+    "build_fingerprint",
+    "FIT_SEED",
+]
+
+FIT_SEED = 1409
 
 
 @dataclass(frozen=True)
@@ -76,4 +91,92 @@ def benchmark_cohort(
             )
         )
     out.sort(key=lambda j: j.benchmark, reverse=True)
+    return out
+
+
+class _Provider(Protocol):
+    def generate(self, prompt: str, **kwargs: Any) -> str: ...
+
+
+def build_fingerprint(*, prefs_text: str, prefer_roles: dict[str, float]) -> str:
+    roles = ", ".join(f"{k}={v}" for k, v in sorted(prefer_roles.items()))
+    return f"{prefs_text}\nPreferred role families (weight): {roles}\n"
+
+
+_FIT_PREAMBLE = (
+    "You score job FIT (0-100) for a candidate from compact job 'cruxes'.\n"
+    "Rubric: 90-100 role weight>=0.8 AND stack overlaps core tools AND seniority "
+    "fresher/junior/mid; 70-89 weight>=0.5 or partial stack; 40-69 weight 0.2-0.5 or "
+    "little overlap; 0-39 weight<0.2 or unrelated. Modifiers: -10 service/staffing "
+    "company; +5 modern infra stack (docker/k8s/ci-cd/cloud). Clamp 0-100.\n"
+    'Return ONLY a JSON array of {"job_id","fit_score","fit_reason"(<=120 chars),'
+    '"concern_codes"(subset of STACK_MISMATCH,SERVICE_COMPANY,SENIORITY_BORDERLINE,'
+    "ROLE_ADJACENT)}. Use only the given job_ids.\n"
+)
+
+
+def _fit_view(crux: Any) -> dict[str, Any]:
+    return {
+        "job_id": crux.job_id, "role_family": crux.role_family,
+        "seniority_signal": crux.seniority_signal, "tech_stack": crux.tech_stack,
+        "work_mode": crux.work_mode, "country": crux.country,
+        "company_type": crux.company_type, "one_line": crux.one_line,
+    }
+
+
+def _unwrap_array(raw: str) -> str:
+    """json_object mode may return {"jobs":[...]} or {"results":[...]}; find the array."""
+    raw = raw.strip()
+    if raw.startswith("["):
+        return raw
+    obj = json.loads(raw)
+    if isinstance(obj, list):
+        return raw
+    for v in obj.values():
+        if isinstance(v, list):
+            return json.dumps(v)
+    return "[]"
+
+
+def fit_scores(
+    cruxes: list[Any],
+    *,
+    fingerprint: str,
+    prefer_roles: dict[str, float],
+    provider: _Provider,
+) -> dict[str, FitResult]:
+    """One NIM call over all cruxes. On failure, every job degrades to fit 0 + flag."""
+    if not cruxes:
+        return {}
+    ids = {c.job_id for c in cruxes}
+    jobs_json = json.dumps(
+        [_fit_view(c) for c in sorted(cruxes, key=lambda c: c.job_id)], indent=2
+    )
+    roles = ", ".join(f"{k}={v}" for k, v in sorted(prefer_roles.items()))
+    prompt = (
+        f"{_FIT_PREAMBLE}\nPreferred role families (weight): {roles}\n\n"
+        f"## Candidate\n{fingerprint}\n\n## Jobs\n{jobs_json}\n"
+    )
+    try:
+        raw = provider.generate(
+            prompt, temperature=0, seed=FIT_SEED, top_p=0.1,
+            max_tokens=min(4096, 60 * len(cruxes) + 200), json_object=True,
+        )
+        # response_format=json_object may wrap the array in an object; accept either.
+        parsed = json.loads(_unwrap_array(raw))
+    except Exception as exc:  # noqa: BLE001 — degrade, never lose the cohort
+        logger.warning("fit scoring failed (%s); degrading cohort to fit 0", exc)
+        return {jid: FitResult(0, "(ranking unavailable)", ["RANKING_DEGRADED"]) for jid in ids}
+    out: dict[str, FitResult] = {}
+    for entry in parsed:
+        jid = str(entry.get("job_id"))
+        if jid not in ids:
+            continue
+        out[jid] = FitResult(
+            fit_score=int(entry.get("fit_score", 0) or 0),
+            fit_reason=str(entry.get("fit_reason", "")),
+            concerns=[str(c) for c in entry.get("concern_codes", [])],
+        )
+    for jid in ids:  # any job the model omitted still gets a row
+        out.setdefault(jid, FitResult(0, "(omitted by ranker)", ["RANKING_DEGRADED"]))
     return out

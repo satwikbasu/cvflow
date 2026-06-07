@@ -36,3 +36,59 @@ def test_benchmark_cohort_N_is_fit_only():
     assert [j.job_id for j in out] == ["a", "b"]
     assert out[0].benchmark == 80 and out[1].benchmark == 45
     assert "PAY_UNKNOWN" in out[0].concerns
+
+
+def test_build_fingerprint_includes_prefs_and_roles():
+    from cvflow.discovery.benchmark import build_fingerprint
+    fp = build_fingerprint(prefs_text="HARD: yoe<=1", prefer_roles={"devops": 1.0, "frontend": 0.3})
+    assert "yoe<=1" in fp
+    assert "devops" in fp and "1.0" in fp
+
+
+def test_fit_scores_parses_and_renders_prefer_roles():
+    import json
+    from cvflow.discovery.benchmark import fit_scores
+    from cvflow.discovery.distill import Crux
+
+    captured = {}
+
+    class _Prov:
+        def generate(self, prompt, **kw):
+            captured["prompt"] = prompt
+            captured["kw"] = kw
+            return json.dumps([
+                {"job_id": "indeed:1", "fit_score": 88, "fit_reason": "infra match",
+                 "concern_codes": ["SERVICE_COMPANY"]},
+                {"job_id": "ghost", "fit_score": 50, "fit_reason": "x", "concern_codes": []},
+            ])
+
+    crux = Crux(job_id="indeed:1", role_family="devops", seniority_signal="junior",
+                min_years_required=2, max_years_required=4, work_mode="remote",
+                location_text="Remote", country="india", stated_salary=None,
+                tech_stack=["docker"], night_shift_only=False, app_maintenance_focus=False,
+                company_type="service", red_flags=[], applicant_instructions=None,
+                one_line="x")
+    out = fit_scores([crux], fingerprint="FP", prefer_roles={"devops": 1.0}, provider=_Prov())
+    assert out["indeed:1"].fit_score == 88
+    assert out["indeed:1"].concerns == ["SERVICE_COMPANY"]
+    assert "ghost" not in out                       # unknown job_id dropped
+    assert "devops" in captured["prompt"]            # prefer_roles rendered
+    assert captured["kw"]["json_object"] is True and captured["kw"]["seed"] is not None
+
+
+def test_fit_scores_degrades_on_provider_error():
+    from cvflow.discovery.benchmark import fit_scores
+    from cvflow.discovery.distill import Crux
+
+    class _Boom:
+        def generate(self, prompt, **kw):
+            raise RuntimeError("nim down")
+
+    crux = Crux(job_id="indeed:1", role_family="devops", seniority_signal="junior",
+                min_years_required=1, max_years_required=2, work_mode="remote",
+                location_text="Remote", country="india", stated_salary=None, tech_stack=[],
+                night_shift_only=False, app_maintenance_focus=False, company_type="product",
+                red_flags=[], applicant_instructions=None, one_line="x")
+    out = fit_scores([crux], fingerprint="FP", prefer_roles={}, provider=_Boom())
+    assert out["indeed:1"].fit_score == 0
+    assert "RANKING_DEGRADED" in out["indeed:1"].concerns
