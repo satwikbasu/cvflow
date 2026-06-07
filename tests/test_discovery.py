@@ -344,3 +344,21 @@ def test_discover_logs_stage_timings(caplog):
     assert "stage prefilter" in msgs
     assert "cohort M" in msgs
     assert "discover total" in msgs
+
+
+def test_prefilter_drops_internship_by_job_type():
+    store = ApplicationStore(":memory:")
+    rows = [
+        _row("1", title="DevOps Engineer", job_type="internship"),
+        _row("2", title="DevOps Engineer", job_type="fulltime"),
+        _row("3", title="DevOps Engineer"),  # no job_type -> kept (never drop on absent)
+    ]
+    svc = _two_stage_service(store, lambda **k: rows, throttle_seconds=0.0,
+                             sleep=lambda s: None, locations=["Remote"])
+    result = svc.discover()
+    assert _all_ids(result) == {"linkedin:2", "linkedin:3"}
+
+
+def test_normalize_carries_job_type():
+    assert normalize_rows([_row("1", job_type="internship")])[0].job_type == "internship"
+    assert normalize_rows([_row("1")])[0].job_type is None

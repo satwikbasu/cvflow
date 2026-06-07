@@ -46,6 +46,7 @@ class JobPosting:
     max_amount: float | None = None
     currency: str | None = None
     experience_range: str | None = None
+    job_type: str | None = None
 
 
 def _stable_job_id(site: str, raw_id: str, url: str) -> str:
@@ -116,6 +117,7 @@ def normalize_rows(rows: list[dict[str, Any]]) -> list[JobPosting]:
                 max_amount=_num(row.get("max_amount")),
                 currency=_clean(row.get("currency")) or None,
                 experience_range=_clean(row.get("experience_range")) or None,
+                job_type=_clean(row.get("job_type")) or None,
             )
         )
     return out
@@ -257,6 +259,11 @@ class DiscoveryService:
             title = p.title.lower()
             if any(k in title for k in self._exclude_title_keywords):
                 logger.info("prefilter drop (title) %s: %s", p.job_id, p.title)
+                continue
+            # Internships are a hard deal-breaker (full-time only). JobSpy's structured
+            # job_type is reliable when present; an absent job_type is never dropped.
+            if p.job_type and "intern" in p.job_type.lower():
+                logger.info("prefilter drop (internship) %s: %s", p.job_id, p.job_type)
                 continue
             cap = p.max_amount if p.max_amount is not None else p.min_amount
             # only filter on salary when stated AND in INR (else keep + let ranker flag)

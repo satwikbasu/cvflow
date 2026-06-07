@@ -53,6 +53,7 @@ preferences:
     - {field: night_shift_only, equals: true}
     - {field: app_maintenance_focus, equals: true}
     - {field: min_years_required, greater_than: 3}
+    - {field: country, equals: "other"}   # drop foreign-onsite (keeps india + global-remote)
     - {field: red_flags, contains_any: ["unpaid", "commission_only", "scam"]}
 
 llm:
