@@ -85,7 +85,7 @@ def test_normalize_experience_range_absent_is_none() -> None:
 
 
 class _StubGemini:
-    """Returns a generic crux echoing the job_id embedded in the distill prompt."""
+    """Stub Mistral provider: distills (generate_structured) AND fit-scores (generate)."""
 
     def __init__(self) -> None:
         self.calls = 0
@@ -102,14 +102,17 @@ class _StubGemini:
             "company_type": "product", "red_flags": [], "applicant_instructions": None,
             "one_line": "infra"})
 
-
-class _StubNim:
-    """Returns fit 80 for every job_id present in the fit prompt."""
-
     def generate(self, prompt, **kw):
         ids = sorted(set(re.findall(r'"job_id": "([^"]+)"', prompt)))
-        return json.dumps([{"job_id": i, "fit_score": 80, "fit_reason": "ok",
-                            "concern_codes": []} for i in ids])
+        return json.dumps({"results": [{"job_id": i, "fit_score": 80, "fit_reason": "ok",
+                                        "concern_codes": []} for i in ids]})
+
+
+class _StubNim:
+    """Unused brain stub (fit now runs on the distillation provider)."""
+
+    def generate(self, prompt, **kw):
+        return json.dumps({"results": []})
 
 
 def _two_stage_service(store, search_fn, **over):
@@ -237,11 +240,10 @@ def test_discover_two_stage_partitions_and_benchmarks():
         def generate_structured(self, prompt, *, schema, seed, max_output_tokens):
             return _distill(prompt, schema=schema, seed=seed, max_output_tokens=max_output_tokens)
 
-    class _Nim:
         def generate(self, prompt, **kw):
             ids = [x for x in ("linkedin:1", "linkedin:2") if x in prompt]
-            return json.dumps([{"job_id": i, "fit_score": 80, "fit_reason": "ok",
-                                "concern_codes": []} for i in ids])
+            return json.dumps({"results": [{"job_id": i, "fit_score": 80, "fit_reason": "ok",
+                                            "concern_codes": []} for i in ids]})
 
     svc = DiscoveryService(
         store=store, search_fn=lambda **k: rows,
@@ -249,7 +251,7 @@ def test_discover_two_stage_partitions_and_benchmarks():
         results_wanted_per_site=10, hours_old=72, top_n=5,
         throttle_seconds=0.0, sleep=lambda s: None,
         exclude_title_keywords=["senior"], min_ctc_lpa=7,
-        distiller=_Gem(), brain=_Nim(), fingerprint="FP", prefer_roles={"devops": 1.0},
+        distiller=_Gem(), brain=None, fingerprint="FP", prefer_roles={"devops": 1.0},
         exclude_when=[], fit_weight=0.70, comp_weight=0.30, top_ctc_lpa=40,
         max_distill_per_cohort=60, top_n_per_cohort=5,
     )

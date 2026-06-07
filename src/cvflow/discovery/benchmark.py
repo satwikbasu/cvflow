@@ -124,10 +124,35 @@ _FIT_PREAMBLE = (
     "fresher/junior/mid; 70-89 weight>=0.5 or partial stack; 40-69 weight 0.2-0.5 or "
     "little overlap; 0-39 weight<0.2 or unrelated. Modifiers: -10 service/staffing "
     "company; +5 modern infra stack (docker/k8s/ci-cd/cloud). Clamp 0-100.\n"
-    'Return ONLY a JSON array of {"job_id","fit_score","fit_reason"(<=120 chars),'
+    'Return a JSON object {"results": [ ... ]} with ONE entry per given job: '
+    '{"job_id","fit_score","fit_reason"(<=120 chars),'
     '"concern_codes"(subset of STACK_MISMATCH,SERVICE_COMPANY,SENIORITY_BORDERLINE,'
-    "ROLE_ADJACENT)}. Use only the given job_ids.\n"
+    "ROLE_ADJACENT)}. Score EVERY job_id given; use only the given job_ids.\n"
 )
+
+# Strict JSON-schema for the fit batch — NIM ignores schemas + emits a single object,
+# so fit runs on the distillation provider (Mistral) which enforces this exactly.
+_FIT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "results": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "job_id": {"type": "string"},
+                    "fit_score": {"type": "integer"},
+                    "fit_reason": {"type": "string"},
+                    "concern_codes": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["job_id", "fit_score", "fit_reason", "concern_codes"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["results"],
+    "additionalProperties": False,
+}
 
 
 def _fit_view(crux: Any) -> dict[str, Any]:
@@ -209,9 +234,15 @@ def fit_scores(
         f"## Candidate\n{fingerprint}\n\n## Jobs\n{jobs_json}\n"
     )
     try:
+        # json_schema (not top_p / json_object): Mistral enforces the exact array shape;
+        # top_p is omitted because temperature=0 is already greedy (Mistral rejects top_p<1).
         raw = provider.generate(
-            prompt, temperature=0, seed=FIT_SEED, top_p=0.1,
-            max_tokens=min(4096, 90 * len(cruxes) + 300), json_object=True,
+            prompt, temperature=0, seed=FIT_SEED,
+            max_tokens=min(8192, 130 * len(cruxes) + 500),
+            response_format={
+                "type": "json_schema",
+                "json_schema": {"name": "FitBatch", "strict": True, "schema": _FIT_SCHEMA},
+            },
         )
     except Exception as exc:  # noqa: BLE001 — degrade, never lose the cohort
         logger.warning("fit scoring call failed (%s); degrading cohort to fit 0", exc)

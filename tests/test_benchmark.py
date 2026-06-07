@@ -74,7 +74,9 @@ def test_fit_scores_parses_and_renders_prefer_roles():
     assert out["indeed:1"].concerns == ["SERVICE_COMPANY"]
     assert "ghost" not in out                       # unknown job_id dropped
     assert "devops" in captured["prompt"]            # prefer_roles rendered
-    assert captured["kw"]["json_object"] is True and captured["kw"]["seed"] is not None
+    # fit now uses strict json_schema structured output (NIM ignores schemas), not json_object
+    assert captured["kw"]["response_format"]["type"] == "json_schema"
+    assert captured["kw"]["seed"] is not None
 
 
 def test_fit_scores_degrades_on_provider_error():

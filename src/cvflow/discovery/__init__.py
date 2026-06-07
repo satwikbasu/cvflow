@@ -307,12 +307,14 @@ class DiscoveryService:
         by_id = {p.job_id: p for p in capped}
         jobs = {c.job_id: by_id[c.job_id] for c in kept_cruxes}
         t = time.monotonic()
+        # Fit runs on the distillation provider (Mistral) — it enforces the json_schema
+        # array shape that NIM can't (NIM ignores schemas + emits a single object).
         fits = fit_scores(
             kept_cruxes, fingerprint=self._fingerprint,
-            prefer_roles=self._prefer_roles, provider=self._brain,
+            prefer_roles=self._prefer_roles, provider=self._distiller_provider,
         )
         logger.info(
-            "cohort %s: fit-scored %d cruxes in %.1fs (1 NIM call)",
+            "cohort %s: fit-scored %d cruxes in %.1fs (1 call)",
             cohort, len(kept_cruxes), time.monotonic() - t,
         )
         ranked = benchmark_cohort(
