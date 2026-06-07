@@ -88,6 +88,11 @@ CREATE TABLE IF NOT EXISTS digest_slots (
     job_id       TEXT NOT NULL,
     presented_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS job_cruxes (
+    job_id       TEXT PRIMARY KEY,
+    crux_json    TEXT NOT NULL,
+    distilled_at TEXT NOT NULL
+);
 """
 
 
@@ -281,6 +286,21 @@ class ApplicationStore:
             "SELECT analysis FROM jd_analyses WHERE job_id = ?", (job_id,)
         ).fetchone()
         return JDAnalysis.from_json(row["analysis"]) if row is not None else None
+
+    def save_crux(self, job_id: str, crux_json: str) -> None:
+        self._conn.execute(
+            "INSERT INTO job_cruxes (job_id, crux_json, distilled_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(job_id) DO UPDATE SET crux_json = excluded.crux_json, "
+            "distilled_at = excluded.distilled_at",
+            (job_id, crux_json, _now()),
+        )
+        self._conn.commit()
+
+    def get_crux(self, job_id: str) -> str | None:
+        row = self._conn.execute(
+            "SELECT crux_json FROM job_cruxes WHERE job_id = ?", (job_id,)
+        ).fetchone()
+        return row["crux_json"] if row is not None else None
 
 
 @dataclass(frozen=True)

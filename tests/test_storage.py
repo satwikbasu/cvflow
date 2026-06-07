@@ -229,3 +229,13 @@ def test_digest_slots_roundtrip_and_replace():
     s.set_digest_slots(["indeed:x"])
     assert s.get_digest_slot(1) == "indeed:x"
     assert s.get_digest_slot(2) is None
+
+
+def test_crux_cache_roundtrip():
+    from cvflow.storage import ApplicationStore
+    s = ApplicationStore(":memory:")
+    assert s.get_crux("indeed:1") is None
+    s.save_crux("indeed:1", '{"job_id":"indeed:1"}')
+    assert s.get_crux("indeed:1") == '{"job_id":"indeed:1"}'
+    s.save_crux("indeed:1", '{"job_id":"indeed:1","v":2}')  # upsert
+    assert s.get_crux("indeed:1") == '{"job_id":"indeed:1","v":2}'
