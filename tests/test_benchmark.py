@@ -197,3 +197,28 @@ def test_fit_scores_degrades_when_unsalvageable():
     out = fit_scores([_crux_for("a")], fingerprint="FP", prefer_roles={}, provider=_Prov())
     assert out["a"].fit_score == 0
     assert "RANKING_DEGRADED" in out["a"].concerns
+
+
+def test_fit_view_includes_must_have_skills_in_prompt():
+    import json
+    from cvflow.discovery.benchmark import fit_scores
+    from cvflow.discovery.distill import Crux
+    captured = {}
+
+    class _Prov:
+        def generate(self, prompt, **kw):
+            captured["prompt"] = prompt
+            return json.dumps({"results": [{"job_id": "indeed:1", "fit_score": 40,
+                                            "fit_reason": "missing must-have",
+                                            "concern_codes": ["MISSING_MUST_HAVE"]}]})
+
+    crux = Crux(job_id="indeed:1", role_family="devops", seniority_signal="junior",
+                min_years_required=1, max_years_required=2, work_mode="remote",
+                location_text="Remote", country="india", stated_salary=None,
+                tech_stack=["docker"], must_have_skills=["kubernetes", "terraform"],
+                night_shift_only=False, app_maintenance_focus=False, company_type="product",
+                red_flags=[], applicant_instructions=None, one_line="x")
+    out = fit_scores([crux], fingerprint="FP", prefer_roles={}, provider=_Prov())
+    assert "must_have_skills" in captured["prompt"]
+    assert "terraform" in captured["prompt"]
+    assert out["indeed:1"].concerns == ["MISSING_MUST_HAVE"]

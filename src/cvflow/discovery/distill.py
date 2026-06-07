@@ -39,6 +39,7 @@ class Crux(BaseModel):
     country: Literal["india", "other", "global-remote"]
     stated_salary: Salary | None
     tech_stack: list[str]
+    must_have_skills: list[str] = []  # JD-stated MANDATORY skills/quals (deal-breakers)
     night_shift_only: bool
     app_maintenance_focus: bool
     company_type: Literal["product", "service", "staffing", "unknown"]
@@ -59,6 +60,9 @@ _PREAMBLE = (
     "existing application codebase.\n"
     "- company_type: product vs service/consultancy/staffing vs unknown.\n"
     "- tech_stack: up to 8 concrete tools, lowercased, normalized (kubernetes->k8s).\n"
+    "- must_have_skills: ONLY skills/tools/quals the JD explicitly marks as REQUIRED / "
+    "mandatory / 'must have' (NOT preferred/nice-to-have/bonus). Lowercased, normalized, "
+    "max 6. Empty list if none are stated as mandatory.\n"
     "- one_line: <=140 char neutral summary.\n"
     "- applicant_instructions: copy any explicit applicant directive verbatim, else null.\n"
     "- job_id MUST equal the provided job_id exactly.\n"
@@ -103,10 +107,15 @@ def distill_all(
     total = len(postings)
     for i, p in enumerate(postings, start=1):
         cached = store.get_crux(p.job_id)
-        if cached is not None:
-            logger.info("distill %d/%d %s (cached)", i, total, p.job_id)
-            out.append(Crux.model_validate_json(cached))
-            continue
+        # Re-distill cruxes saved before a schema field was added (here: must_have_skills),
+        # so new fields take effect without a manual cache wipe.
+        if cached is not None and '"must_have_skills"' in cached:
+            try:
+                out.append(Crux.model_validate_json(cached))
+                logger.info("distill %d/%d %s (cached)", i, total, p.job_id)
+                continue
+            except Exception as exc:  # noqa: BLE001 — stale/corrupt cache -> re-distill
+                logger.warning("stale crux %s (%s); re-distilling", p.job_id, exc)
         t = time.monotonic()
         try:
             crux = distiller.distill(p)

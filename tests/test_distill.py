@@ -18,7 +18,8 @@ _REPLY = json.dumps({
     "job_id": "indeed:1", "role_family": "devops", "seniority_signal": "junior",
     "min_years_required": 2, "max_years_required": 4, "work_mode": "remote",
     "location_text": "Remote (IN)", "country": "india", "stated_salary": None,
-    "tech_stack": ["docker", "k8s"], "night_shift_only": False,
+    "tech_stack": ["docker", "k8s"], "must_have_skills": ["k8s", "terraform"],
+    "night_shift_only": False,
     "app_maintenance_focus": False, "company_type": "product", "red_flags": [],
     "applicant_instructions": None, "one_line": "Build CI/CD for a product team",
 })
@@ -42,6 +43,7 @@ def test_distiller_parses_crux_and_passes_jd_text():
     assert crux.min_years_required == 2
     assert crux.stated_salary is None
     assert crux.tech_stack == ["docker", "k8s"]
+    assert crux.must_have_skills == ["k8s", "terraform"]
     assert "Build CI/CD pipelines" in prov.calls[0]["prompt"]  # JD text fed in
     assert prov.calls[0]["schema"] is Crux
     assert prov.calls[0]["seed"] == 7

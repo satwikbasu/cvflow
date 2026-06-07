@@ -154,10 +154,13 @@ _FIT_PREAMBLE = (
     "fresher/junior/mid; 70-89 weight>=0.5 or partial stack; 40-69 weight 0.2-0.5 or "
     "little overlap; 0-39 weight<0.2 or unrelated. Modifiers: -10 service/staffing "
     "company; +5 modern infra stack (docker/k8s/ci-cd/cloud). Clamp 0-100.\n"
+    "HARD GATE: if the job's must_have_skills lists anything the CANDIDATE clearly lacks "
+    "(not in their stack/profile; treat synonyms as present, e.g. k8s=kubernetes), CAP "
+    "fit_score at 40 and add concern MISSING_MUST_HAVE. Empty must_have_skills = no gate.\n"
     'Return a JSON object {"results": [ ... ]} with ONE entry per given job: '
     '{"job_id","fit_score","fit_reason"(<=120 chars),'
     '"concern_codes"(subset of STACK_MISMATCH,SERVICE_COMPANY,SENIORITY_BORDERLINE,'
-    "ROLE_ADJACENT)}. Score EVERY job_id given; use only the given job_ids.\n"
+    "ROLE_ADJACENT,MISSING_MUST_HAVE)}. Score EVERY job_id given; use only the given job_ids.\n"
 )
 
 # Strict JSON-schema for the fit batch — NIM ignores schemas + emits a single object,
@@ -189,6 +192,7 @@ def _fit_view(crux: Any) -> dict[str, Any]:
     return {
         "job_id": crux.job_id, "role_family": crux.role_family,
         "seniority_signal": crux.seniority_signal, "tech_stack": crux.tech_stack,
+        "must_have_skills": getattr(crux, "must_have_skills", []),
         "work_mode": crux.work_mode, "country": crux.country,
         "company_type": crux.company_type, "one_line": crux.one_line,
     }
