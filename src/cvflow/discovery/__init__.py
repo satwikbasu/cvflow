@@ -278,6 +278,7 @@ class DiscoveryService:
             jobs, fits, cohort=cohort, fit_weight=self._fit_weight,
             comp_weight=self._comp_weight, min_lpa=self._min_ctc_lpa,
             top_lpa=self._top_ctc_lpa,
+            cruxes={c.job_id: c for c in kept_cruxes},
         )
         return ranked[: self._top_n_per_cohort]
 

@@ -93,3 +93,47 @@ def test_fit_scores_degrades_on_provider_error():
     out = fit_scores([crux], fingerprint="FP", prefer_roles={}, provider=_Boom())
     assert out["indeed:1"].fit_score == 0
     assert "RANKING_DEGRADED" in out["indeed:1"].concerns
+
+
+def test_n_cohort_job_gets_pay_unknown_concern():
+    jobs = {"a": _job("a")}  # no salary
+    fits = {"a": FitResult(80, "x", [])}
+    out = benchmark_cohort(jobs, fits, cohort="N", fit_weight=0.70, comp_weight=0.30,
+                           min_lpa=7, top_lpa=40)
+    assert "PAY_UNKNOWN" in out[0].concerns
+
+
+def test_m_cohort_job_with_salary_has_no_pay_unknown():
+    jobs = {"a": _job("a", 2_300_000, "INR")}
+    fits = {"a": FitResult(70, "ok", [])}
+    out = benchmark_cohort(jobs, fits, cohort="M", fit_weight=0.70, comp_weight=0.30,
+                           min_lpa=7, top_lpa=40)
+    assert "PAY_UNKNOWN" not in out[0].concerns
+
+
+def test_yoe_unknown_concern_when_crux_min_years_is_null():
+    from cvflow.discovery.distill import Crux
+    jobs = {"a": _job("a")}
+    fits = {"a": FitResult(80, "x", [])}
+    crux = Crux(job_id="a", role_family="devops", seniority_signal="junior",
+                min_years_required=None, max_years_required=None, work_mode="remote",
+                location_text="Remote", country="india", stated_salary=None, tech_stack=[],
+                night_shift_only=False, app_maintenance_focus=False, company_type="product",
+                red_flags=[], applicant_instructions=None, one_line="x")
+    out = benchmark_cohort(jobs, fits, cohort="N", fit_weight=0.70, comp_weight=0.30,
+                           min_lpa=7, top_lpa=40, cruxes={"a": crux})
+    assert "YOE_UNKNOWN" in out[0].concerns
+
+
+def test_no_yoe_unknown_when_min_years_present():
+    from cvflow.discovery.distill import Crux
+    jobs = {"a": _job("a", 2_300_000, "INR")}
+    fits = {"a": FitResult(70, "ok", [])}
+    crux = Crux(job_id="a", role_family="devops", seniority_signal="junior",
+                min_years_required=1, max_years_required=2, work_mode="remote",
+                location_text="Remote", country="india", stated_salary=None, tech_stack=[],
+                night_shift_only=False, app_maintenance_focus=False, company_type="product",
+                red_flags=[], applicant_instructions=None, one_line="x")
+    out = benchmark_cohort(jobs, fits, cohort="M", fit_weight=0.70, comp_weight=0.30,
+                           min_lpa=7, top_lpa=40, cruxes={"a": crux})
+    assert "YOE_UNKNOWN" not in out[0].concerns

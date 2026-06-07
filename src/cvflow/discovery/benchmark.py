@@ -72,8 +72,15 @@ def benchmark_cohort(
     comp_weight: float,
     min_lpa: int,
     top_lpa: int,
+    cruxes: dict[str, Any] | None = None,
 ) -> list[BenchmarkedJob]:
-    """Score + sort one cohort. M blends fit+comp; N is fit only."""
+    """Score + sort one cohort. M blends fit+comp; N is fit only.
+
+    Adds code-side deterministic concerns the LLM never emits (14C §2/§5):
+    PAY_UNKNOWN when there's no stated INR salary, YOE_UNKNOWN when the crux
+    didn't state a minimum experience (never-fabricate — invariant 2).
+    """
+    cruxes = cruxes or {}
     out: list[BenchmarkedJob] = []
     for job_id, posting in jobs.items():
         fit = fits.get(job_id, FitResult(0, "(no fit score)", ["RANKING_DEGRADED"]))
@@ -83,10 +90,18 @@ def benchmark_cohort(
             score = round(100 * (fit_weight * fit.fit_score / 100 + comp_weight * c))
         else:
             score = round(100 * (fit.fit_score / 100))
+        concerns = list(fit.concerns)
+        crux = cruxes.get(job_id)
+        for code, applies in (
+            ("PAY_UNKNOWN", lpa is None),
+            ("YOE_UNKNOWN", crux is not None and crux.min_years_required is None),
+        ):
+            if applies and code not in concerns:
+                concerns.append(code)
         out.append(
             BenchmarkedJob(
                 posting=posting, benchmark=score, fit_score=fit.fit_score,
-                fit_reason=fit.fit_reason, concerns=list(fit.concerns), cohort=cohort,
+                fit_reason=fit.fit_reason, concerns=concerns, cohort=cohort,
                 ctc_lpa=lpa,
             )
         )
