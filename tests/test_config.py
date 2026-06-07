@@ -245,3 +245,13 @@ def test_phase14_weights_must_sum_to_one(tmp_path):
     with pytest.raises(ConfigError) as exc:
         load_config(_write(tmp_path, bad))
     assert "fit_weight" in str(exc.value) and "sum" in str(exc.value).lower()
+
+
+def test_example_config_includes_naukri_site():
+    # Phase 14A §2/§8: Naukri is the only India-native source populating INR salary
+    # + experience_range. The committed example must enable it (secret-free file).
+    from pathlib import Path
+
+    from cvflow.config import load_config
+    cfg = load_config(Path(__file__).resolve().parent.parent / "config.example.yaml")
+    assert "naukri" in cfg.discovery.sites
