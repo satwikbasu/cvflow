@@ -47,6 +47,7 @@ def test_build_fingerprint_includes_prefs_and_roles():
 
 def test_fit_scores_parses_and_renders_prefer_roles():
     import json
+
     from cvflow.discovery.benchmark import fit_scores
     from cvflow.discovery.distill import Crux
 
