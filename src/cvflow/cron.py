@@ -12,22 +12,35 @@ from typing import Any
 from cvflow.statemachine import Status
 
 
-def format_digest(ranked: list[Any]) -> str:
-    """Render the daily digest. Always includes each job's URL + /apply,/skip."""
-    if not ranked:
+def format_digest(result: dict[str, Any]) -> str:
+    """Render the two-section digest (M = stated pay, N = no pay). Continuously numbered."""
+    m, n = result.get("M", []), result.get("N", [])
+    if not m and not n:
         return "No new jobs today."
     parts = ["🗞️ cvflow — new jobs today:\n"]
-    for i, rj in enumerate(ranked, start=1):
-        p = rj.posting
+    idx = 1
+
+    def _block(bj: Any, i: int) -> str:
+        p = bj.posting
         company = p.company or "Unknown company"
-        concerns = f"  ⚠️ {'; '.join(rj.concerns)}\n" if rj.concerns else ""
-        parts.append(
-            f"{i}. {p.title} @ {company}  (fit {rj.fit_score})\n"
-            f"  {p.url}\n"
-            f"  {rj.rationale}\n"
-            f"{concerns}"
+        pay = f" · {round(bj.ctc_lpa)} LPA" if getattr(bj, "ctc_lpa", None) else ""
+        concerns = f"  ⚠️ {'; '.join(bj.concerns)}\n" if bj.concerns else ""
+        return (
+            f"{i}. {p.title} @ {company}  (bench {bj.benchmark} · fit {bj.fit_score}{pay})\n"
+            f"  {p.url}\n  {bj.fit_reason}\n{concerns}"
             f"  /apply {p.job_id} | /skip {p.job_id}\n"
         )
+
+    if m:
+        parts.append("💰 With stated pay (ranked by value)\n")
+        for bj in m:
+            parts.append(_block(bj, idx))
+            idx += 1
+    if n:
+        parts.append("📋 Pay not stated (ranked by fit)\n")
+        for bj in n:
+            parts.append(_block(bj, idx))
+            idx += 1
     parts.append("Reply: /apply 1 2 4  •  /skip 3  •  /apply all")
     return "\n".join(parts)
 
@@ -38,9 +51,10 @@ def run_job(
 ) -> None:
     """Dispatch one scheduled job. Pure of config/network — deps are injected."""
     if job == "discover":
-        ranked = discovery.discover()
-        store.set_digest_slots([rj.posting.job_id for rj in ranked])
-        notify(format_digest(ranked))
+        result = discovery.discover()
+        ordered = [bj.posting.job_id for bj in result.get("M", []) + result.get("N", [])]
+        store.set_digest_slots(ordered)
+        notify(format_digest(result))
     elif job == "sweep-otp":
         otp.expire_overdue()
     elif job == "heartbeat":

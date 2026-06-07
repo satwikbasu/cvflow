@@ -3,29 +3,36 @@
 import pytest
 
 from cvflow.cron import format_digest, run_job
-from cvflow.discovery import JobPosting, RankedJob
+from cvflow.discovery import JobPosting
+from cvflow.discovery.benchmark import BenchmarkedJob
 from cvflow.statemachine import Status
 from cvflow.storage import ApplicationStore
 
 
-def _ranked():
+def _bj(jid, cohort="M", bench=70, lpa=None, concerns=None):
     p = JobPosting(
-        job_id="indeed:7", title="Backend Dev", company="Acme", location="Remote",
-        description="d", url="https://jobs/7", site="indeed", date_posted="2026-06-05",
+        job_id=jid, title="Backend Dev", company="Acme", location="Remote",
+        description="d", url=f"https://jobs/{jid}", site="indeed", date_posted="2026-06-05",
     )
-    return [RankedJob(posting=p, summary="s", rationale="great fit")]
+    return BenchmarkedJob(posting=p, benchmark=bench, fit_score=bench,
+                          fit_reason="great fit", concerns=concerns or [], cohort=cohort,
+                          ctc_lpa=lpa)
+
+
+def _result():
+    return {"M": [_bj("indeed:7", "M", 70, lpa=18.0)], "N": []}
 
 
 def test_format_digest_includes_url_and_commands():
-    text = format_digest(_ranked())
-    assert "https://jobs/7" in text
+    text = format_digest(_result())
+    assert "https://jobs/indeed:7" in text
     assert "/apply indeed:7" in text
     assert "/skip indeed:7" in text
     assert "Backend Dev" in text
 
 
 def test_format_digest_empty():
-    assert format_digest([]) == "No new jobs today."
+    assert format_digest({"M": [], "N": []}) == "No new jobs today."
 
 
 def test_run_job_discover_sends_digest():
@@ -33,11 +40,11 @@ def test_run_job_discover_sends_digest():
 
     class _Disc:
         def discover(self):
-            return _ranked()
+            return _result()
 
     run_job("discover", store=ApplicationStore(":memory:"), discovery=_Disc(),
             otp=None, notify=notes.append)
-    assert notes and "https://jobs/7" in notes[0]
+    assert notes and "https://jobs/indeed:7" in notes[0]
 
 
 def test_run_job_sweep_otp_calls_expire_overdue():
@@ -95,36 +102,39 @@ def test_main_notifies_on_job_failure():
     assert any("failed" in n for n in notes)
 
 
-def test_format_digest_shows_fit_score_and_concerns():
-    from cvflow.cron import format_digest
-    from cvflow.discovery import JobPosting, RankedJob
-    p = JobPosting(job_id="indeed:7", title="DevOps", company="", location="Remote",
-                   description="d", url="https://jobs/7", site="indeed", date_posted="x")
-    rj = RankedJob(posting=p, summary="s", rationale="infra fit", fit_score=88,
-                   concerns=["salary not stated"])
-    text = format_digest([rj])
-    assert "88" in text
-    assert "salary not stated" in text
-    assert "Unknown company" in text
+def test_format_digest_two_sections_and_continuous_numbering():
+    def _bj2(jid, cohort, bench, lpa=None, concerns=None):
+        p = JobPosting(job_id=jid, title="DevOps", company="Acme", location="Remote",
+                       description="d", url=f"https://{jid}", site="indeed", date_posted="x")
+        return BenchmarkedJob(posting=p, benchmark=bench, fit_score=bench,
+                              fit_reason="infra fit", concerns=concerns or [], cohort=cohort,
+                              ctc_lpa=lpa)
+
+    result = {"M": [_bj2("indeed:1", "M", 74, lpa=23.0)],
+              "N": [_bj2("indeed:2", "N", 80, concerns=["PAY_UNKNOWN"])]}
+    text = format_digest(result)
+    assert "With stated pay" in text and "Pay not stated" in text
+    assert "1. " in text and "2. " in text         # continuous numbering across sections
+    assert "23 LPA" in text and "74" in text
+    assert "PAY_UNKNOWN" in text
+    assert "/apply indeed:1" in text and "/apply indeed:2" in text
 
 
-def test_run_job_discover_persists_digest_slots():
-    from cvflow.cron import run_job
-    from cvflow.discovery import JobPosting, RankedJob
-    from cvflow.storage import ApplicationStore
+def test_run_job_discover_sets_slots_in_combined_order():
     store = ApplicationStore(":memory:")
 
-    def _rj(jid):
-        p = JobPosting(job_id=jid, title="T", company="C", location="L",
-                       description="d", url=f"https://{jid}", site="indeed", date_posted="x")
-        return RankedJob(posting=p, summary="s", rationale="r")
+    def _bj2(jid, cohort):
+        p = JobPosting(job_id=jid, title="T", company="C", location="L", description="d",
+                       url=f"https://{jid}", site="indeed", date_posted="x")
+        return BenchmarkedJob(posting=p, benchmark=70, fit_score=70, fit_reason="r",
+                              concerns=[], cohort=cohort)
 
     class _Disc:
         def discover(self):
-            return [_rj("indeed:a"), _rj("indeed:b")]
+            return {"M": [_bj2("indeed:1", "M")], "N": [_bj2("indeed:2", "N")]}
 
     run_job("discover", store=store, discovery=_Disc(), otp=None, notify=lambda m: None)
-    assert store.digest_slots() == ["indeed:a", "indeed:b"]
+    assert store.digest_slots() == ["indeed:1", "indeed:2"]  # M first, then N
 
 
 def test_run_job_learn_notifies_suggestion():
