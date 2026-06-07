@@ -1,7 +1,7 @@
 """Hybrid benchmark math (Phase 14C). Pure functions; no network."""
 
 from cvflow.discovery import JobPosting
-from cvflow.discovery.benchmark import BenchmarkedJob, FitResult, benchmark_cohort, comp_score
+from cvflow.discovery.benchmark import FitResult, benchmark_cohort, comp_score
 
 
 def test_comp_score_anchors():
