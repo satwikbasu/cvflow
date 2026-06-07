@@ -141,6 +141,7 @@ def test_no_yoe_unknown_when_min_years_present():
 
 def test_fit_scores_tolerates_non_dict_entries():
     import json
+
     from cvflow.discovery.benchmark import fit_scores
     from cvflow.discovery.distill import Crux
 

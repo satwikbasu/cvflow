@@ -66,7 +66,9 @@ class PreferencesConfig:
 
 
 @dataclass(frozen=True)
-class BrainConfig:
+class ProviderConfig:
+    """One OpenAI-compatible chat provider (brain, distillation, or tailoring)."""
+
     provider: str
     api_key: str
     base_url: str
@@ -74,18 +76,15 @@ class BrainConfig:
     max_requests_per_minute: int
 
 
-@dataclass(frozen=True)
-class TailoringConfig:
-    provider: str
-    api_key: str
-    model: str
-    max_requests_per_day: int
+# Back-compat alias (the brain has always used this name).
+BrainConfig = ProviderConfig
 
 
 @dataclass(frozen=True)
 class LLMConfig:
-    brain: BrainConfig
-    tailoring: TailoringConfig
+    brain: ProviderConfig
+    distillation: ProviderConfig
+    tailoring: ProviderConfig
 
 
 @dataclass(frozen=True)
@@ -212,6 +211,17 @@ def _get_rule_list(data: dict[str, Any], key: str, path: str) -> list[dict[str, 
     return rules
 
 
+def _provider_config(section: dict[str, Any], path: str) -> ProviderConfig:
+    """Parse one OpenAI-compatible provider block (brain/distillation/tailoring)."""
+    return ProviderConfig(
+        provider=_get_str(section, "provider", path),
+        api_key=_get_str(section, "api_key", path).strip(),
+        base_url=_get_str(section, "base_url", path),
+        model=_get_str(section, "model", path),
+        max_requests_per_minute=_get_int(section, "max_requests_per_minute", path),
+    )
+
+
 def load_config(path: str | Path) -> Config:
     """Load, validate, and return the typed config at ``path``.
 
@@ -236,6 +246,7 @@ def load_config(path: str | Path) -> Config:
     pref = _section(data, "preferences", "")
     llm = _section(data, "llm", "")
     brain = _section(llm, "brain", "llm.")
+    distill = _section(llm, "distillation", "llm.")
     tail = _section(llm, "tailoring", "llm.")
     res = _section(data, "resume", "")
     auto = _section(data, "automation", "")
@@ -293,19 +304,9 @@ def load_config(path: str | Path) -> Config:
             exclude_when=_get_rule_list(pref, "exclude_when", "preferences."),
         ),
         llm=LLMConfig(
-            brain=BrainConfig(
-                provider=_get_str(brain, "provider", "llm.brain."),
-                api_key=_get_str(brain, "api_key", "llm.brain.").strip(),
-                base_url=_get_str(brain, "base_url", "llm.brain."),
-                model=_get_str(brain, "model", "llm.brain."),
-                max_requests_per_minute=_get_int(brain, "max_requests_per_minute", "llm.brain."),
-            ),
-            tailoring=TailoringConfig(
-                provider=_get_str(tail, "provider", "llm.tailoring."),
-                api_key=_get_str(tail, "api_key", "llm.tailoring.").strip(),
-                model=_get_str(tail, "model", "llm.tailoring."),
-                max_requests_per_day=_get_int(tail, "max_requests_per_day", "llm.tailoring."),
-            ),
+            brain=_provider_config(brain, "llm.brain."),
+            distillation=_provider_config(distill, "llm.distillation."),
+            tailoring=_provider_config(tail, "llm.tailoring."),
         ),
         resume=ResumeConfig(
             master_tex_path=_get_str(res, "master_tex_path", "resume."),

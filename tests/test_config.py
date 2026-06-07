@@ -56,11 +56,18 @@ VALID_YAML = textwrap.dedent(
         base_url: "https://integrate.api.nvidia.com/v1"
         model: "meta/llama-3.3-70b-instruct"
         max_requests_per_minute: 40
+      distillation:
+        provider: "mistral"
+        api_key: "mistral-key"
+        base_url: "https://api.mistral.ai/v1"
+        model: "mistral-small-2506"
+        max_requests_per_minute: 300
       tailoring:
-        provider: "gemini"
-        api_key: "AIza-yyy"
-        model: "gemini-2.5-flash"
-        max_requests_per_day: 1400
+        provider: "cerebras"
+        api_key: "csk-yyy"
+        base_url: "https://api.cerebras.ai/v1"
+        model: "gpt-oss-120b"
+        max_requests_per_minute: 5
     resume:
       master_tex_path: "resume/master.tex"
       output_dir: "data/resumes"
@@ -98,7 +105,9 @@ def test_loads_valid_config(tmp_path: Path) -> None:
     assert cfg.schedule.timezone == "Asia/Kolkata"
     assert cfg.discovery.top_n_to_present == 8
     assert cfg.llm.brain.model == "meta/llama-3.3-70b-instruct"
-    assert cfg.llm.tailoring.max_requests_per_day == 1400
+    assert cfg.llm.distillation.model == "mistral-small-2506"
+    assert cfg.llm.tailoring.model == "gpt-oss-120b"
+    assert cfg.llm.tailoring.max_requests_per_minute == 5
     assert cfg.auth.otp_timeout_minutes == 15
     assert cfg.storage.db_path == "data/cvflow.db"
 
@@ -181,11 +190,18 @@ def test_preferences_block_parsed(tmp_path):
             base_url: u
             model: m
             max_requests_per_minute: 40
-          tailoring:
-            provider: google
+          distillation:
+            provider: mistral
             api_key: k
+            base_url: u
             model: m
-            max_requests_per_day: 50
+            max_requests_per_minute: 300
+          tailoring:
+            provider: cerebras
+            api_key: k
+            base_url: u
+            model: m
+            max_requests_per_minute: 5
         resume:
           master_tex_path: resume/master.tex
           output_dir: data/tailored

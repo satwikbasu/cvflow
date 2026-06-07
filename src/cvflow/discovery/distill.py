@@ -1,7 +1,8 @@
 """Stage-1 of discovery: distil one JD into a structured, enum-heavy Crux (Phase 14B).
 
-Engine: Gemini 2.5 Flash via GeminiProvider.generate_structured (thinking off). The
-distiller is told never to infer salary or YOE — absent facts become null/"unknown".
+Engine: any OpenAI-compatible provider with ``generate_structured`` (default: Mistral
+``mistral-small`` — fast, high-TPM, strict JSON). The distiller is told never to infer
+salary or YOE — absent facts become null/"unknown".
 """
 
 from __future__ import annotations

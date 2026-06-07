@@ -64,13 +64,22 @@ llm:
     base_url: "https://integrate.api.nvidia.com/v1"
     model: "meta/llama-3.3-70b-instruct"  # fast non-reasoning, tool-calling, 128k ctx
     max_requests_per_minute: 40     # free-tier RPM (upgradable to 200); no hard daily cap
-  # Resume tailoring is escalated to Gemini for quality (low volume -> stays under RPD).
+  # DISTILLATION = lightweight high-volume JD->Crux structured extraction (Phase 14B).
+  # Any OpenAI-compatible provider; default Mistral mistral-small (strict JSON, high TPM).
+  distillation:
+    provider: "mistral"
+    api_key: ""                     # console.mistral.ai key
+    base_url: "https://api.mistral.ai/v1"
+    model: "mistral-small-2506"
+    max_requests_per_minute: 300    # 5 RPS free tier
+  # TAILORING = low-volume, high-quality resume tailoring. Cerebras gpt-oss-120b (65k ctx).
   tailoring:
-    provider: "gemini"
-    api_key: ""                     # Google AI Studio free-tier key
-    model: "gemini-2.5-flash"
-    max_requests_per_day: 1400      # stay under free-tier RPD by design
-  # PRIVACY: both free tiers may train on submitted data (incl. your PII). See CLAUDE.md.
+    provider: "cerebras"
+    api_key: ""                     # cloud.cerebras.ai key (csk-...)
+    base_url: "https://api.cerebras.ai/v1"
+    model: "gpt-oss-120b"
+    max_requests_per_minute: 5      # free tier: 5 RPM / 2400 per day
+  # PRIVACY: free tiers may train on submitted data (incl. your PII). See CLAUDE.md.
 
 resume:
   master_tex_path: "resume/master.tex"   # your modular master LaTeX resume

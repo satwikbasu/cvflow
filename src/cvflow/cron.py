@@ -103,7 +103,7 @@ def _build(config: Any) -> tuple[Any, Any, Any, Any, Any]:
     from cvflow.discovery import DiscoveryService
     from cvflow.discovery.benchmark import build_fingerprint
     from cvflow.knowledge import KnowledgeBase
-    from cvflow.llm import GeminiProvider, NimProvider
+    from cvflow.llm import NimProvider
     from cvflow.notify import HermesNotifier
     from cvflow.storage import ApplicationStore
 
@@ -111,17 +111,16 @@ def _build(config: Any) -> tuple[Any, Any, Any, Any, Any]:
     knowledge = KnowledgeBase.load(
         config.profile.knowledge_base_dir, config.storage.form_fields_path
     )
-    brain = NimProvider(
-        base_url=config.llm.brain.base_url,
-        api_key=config.llm.brain.api_key,
-        model=config.llm.brain.model,
-        max_requests_per_minute=config.llm.brain.max_requests_per_minute,
-    )
-    gemini = GeminiProvider(
-        api_key=config.llm.tailoring.api_key,
-        model=config.llm.tailoring.model,
-        max_requests_per_day=config.llm.tailoring.max_requests_per_day,
-    )
+
+    def _provider(cfg: Any) -> NimProvider:
+        return NimProvider(
+            base_url=cfg.base_url, api_key=cfg.api_key, model=cfg.model,
+            max_requests_per_minute=cfg.max_requests_per_minute,
+            seed_field="random_seed" if cfg.provider == "mistral" else "seed",
+        )
+
+    brain = _provider(config.llm.brain)
+    distiller = _provider(config.llm.distillation)  # Mistral mistral-small
     fingerprint = build_fingerprint(
         prefs_text=knowledge.full_context(), prefer_roles=config.preferences.prefer_roles
     )
@@ -137,7 +136,7 @@ def _build(config: Any) -> tuple[Any, Any, Any, Any, Any]:
         min_ctc_lpa=config.preferences.min_ctc_lpa,
         country_indeed=config.discovery.country_indeed,
         linkedin_fetch_description=config.discovery.linkedin_fetch_description,
-        gemini=gemini,
+        distiller=distiller,
         brain=brain,
         fingerprint=fingerprint,
         prefer_roles=config.preferences.prefer_roles,

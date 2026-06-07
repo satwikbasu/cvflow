@@ -183,7 +183,7 @@ class DiscoveryService:
         country_indeed: str = "usa",
         linkedin_fetch_description: bool = False,
         max_rank_candidates: int = 40,
-        gemini: Any = None,
+        distiller: Any = None,
         brain: Any = None,
         fingerprint: str = "",
         prefer_roles: dict[str, float] | None = None,
@@ -212,7 +212,7 @@ class DiscoveryService:
         self._country_indeed = country_indeed
         self._linkedin_fetch_description = linkedin_fetch_description
         self._max_rank_candidates = max_rank_candidates
-        self._gemini = gemini
+        self._distiller_provider = distiller
         self._brain = brain
         self._fingerprint = fingerprint
         self._prefer_roles = prefer_roles or {}
@@ -289,7 +289,7 @@ class DiscoveryService:
         capped = sorted(postings, key=lambda p: p.date_posted, reverse=True)[
             : self._max_distill_per_cohort
         ]
-        distiller = Distiller(self._gemini, seed=self._distill_seed)
+        distiller = Distiller(self._distiller_provider, seed=self._distill_seed)
         t = time.monotonic()
         cruxes = distill_all(capped, self._store, distiller)
         logger.info(

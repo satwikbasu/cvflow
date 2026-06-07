@@ -153,3 +153,31 @@ def test_nim_generate_default_no_extra_params():
                 max_requests_per_minute=40, post_fn=post_fn).generate("p")
     assert "seed" not in captured["body"]
     assert "response_format" not in captured["body"]
+
+
+def test_nim_generate_structured_uses_json_object_and_returns_text():
+    import json
+
+    from cvflow.llm import NimProvider
+    captured = {}
+
+    def post_fn(url, headers, body):
+        captured["body"] = json.loads(body)
+        return json.dumps({"choices": [{"message": {"content": '{"job_id":"x"}'}}]})
+
+    prov = NimProvider(base_url="https://api.mistral.ai/v1", api_key="k",
+                       model="mistral-small-2506", max_requests_per_minute=300, post_fn=post_fn)
+    out = prov.generate_structured("p", schema=object, seed=7, max_output_tokens=256)
+    assert out == '{"job_id":"x"}'
+    assert captured["body"]["response_format"] == {"type": "json_object"}
+    assert captured["body"]["seed"] == 7
+    assert captured["body"]["max_tokens"] == 256
+
+
+def test_urllib_post_sends_user_agent_header():
+    # Cerebras (Cloudflare) rejects the default urllib UA with 403/1010.
+    import inspect
+
+    from cvflow.llm import _urllib_post
+    src = inspect.getsource(_urllib_post)
+    assert "User-Agent" in src

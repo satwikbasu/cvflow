@@ -132,6 +132,9 @@ def _now_seconds() -> float:
 def _urllib_post(url: str, headers: dict[str, str], body: str) -> str:
     from urllib.request import Request, urlopen
 
+    # Some OpenAI-compatible hosts (e.g. Cerebras behind Cloudflare) reject the default
+    # urllib User-Agent with a 403/1010; send a browser-like UA.
+    headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) cvflow/1.0", **headers}
     req = Request(url, data=body.encode(), headers=headers, method="POST")
     # NIM free-tier latency can swing past a minute; give the call room. The cron
     # path has no 120s agent limit, and the RPM budget still guards call volume.
@@ -156,6 +159,7 @@ class NimProvider:
         api_key: str,
         model: str,
         max_requests_per_minute: int,
+        seed_field: str = "seed",
         post_fn: Callable[[str, dict[str, str], str], str] = _urllib_post,
         now: Callable[[], float] = _now_seconds,
     ) -> None:
@@ -163,6 +167,8 @@ class NimProvider:
         self._api_key = api_key
         self._model = model
         self._max_rpm = max_requests_per_minute
+        # Most OpenAI-compatible hosts call it "seed"; Mistral calls it "random_seed".
+        self._seed_field = seed_field
         self._post = post_fn
         self._now = now
         self._window_start = now()
@@ -186,6 +192,7 @@ class NimProvider:
         top_p: float | None = None,
         max_tokens: int | None = None,
         json_object: bool = False,
+        response_format: dict[str, Any] | None = None,
     ) -> str:
         self._spend_one()
         headers = {
@@ -199,12 +206,14 @@ class NimProvider:
         if temperature is not None:
             payload["temperature"] = temperature
         if seed is not None:
-            payload["seed"] = seed
+            payload[self._seed_field] = seed
         if top_p is not None:
             payload["top_p"] = top_p
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
-        if json_object:
+        if response_format is not None:
+            payload["response_format"] = response_format
+        elif json_object:
             payload["response_format"] = {"type": "json_object"}
         raw = self._post(self._url, headers, json.dumps(payload))
         try:
@@ -212,3 +221,35 @@ class NimProvider:
             return str(data["choices"][0]["message"]["content"])
         except (ValueError, KeyError, IndexError, TypeError) as exc:
             raise LLMError(f"could not parse NIM reply: {exc}") from exc
+
+    def generate_structured(
+        self,
+        prompt: str,
+        *,
+        schema: Any = None,
+        seed: int = 0,
+        max_output_tokens: int = 512,
+    ) -> str:
+        """Structured-JSON generation over the OpenAI-compatible chat API.
+
+        Mirrors :meth:`GeminiProvider.generate_structured` so the distiller is
+        provider-agnostic. When ``schema`` is a pydantic model, its JSON schema is
+        sent as a strict ``json_schema`` response_format (Mistral/OpenAI/Cerebras
+        enforce the exact shape); otherwise plain ``json_object``. The caller still
+        validates with pydantic. Returns the raw JSON string.
+        """
+        response_format: dict[str, Any] = {"type": "json_object"}
+        if schema is not None and hasattr(schema, "model_json_schema"):
+            response_format = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": schema.__name__,
+                    "strict": True,
+                    "schema": schema.model_json_schema(),
+                },
+            }
+        # No top_p: temperature=0 is already greedy, and Mistral rejects top_p<1 then.
+        return self.generate(
+            prompt, temperature=0, seed=seed,
+            max_tokens=max_output_tokens, response_format=response_format,
+        )

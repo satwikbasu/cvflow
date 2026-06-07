@@ -220,7 +220,7 @@ def build_tools(config: Any) -> CvflowTools:
     from pathlib import Path
 
     from cvflow.knowledge import KnowledgeBase
-    from cvflow.llm import GeminiProvider
+    from cvflow.llm import NimProvider
     from cvflow.resume import ResumeTailor, parse_master
     from cvflow.storage import ApplicationStore
 
@@ -229,11 +229,16 @@ def build_tools(config: Any) -> CvflowTools:
         config.profile.knowledge_base_dir,
         config.storage.form_fields_path,
     )
-    tailoring = GeminiProvider(
-        api_key=config.llm.tailoring.api_key,
-        model=config.llm.tailoring.model,
-        max_requests_per_day=config.llm.tailoring.max_requests_per_day,
-    )
+
+    def _provider(cfg: Any) -> NimProvider:
+        return NimProvider(
+            base_url=cfg.base_url, api_key=cfg.api_key, model=cfg.model,
+            max_requests_per_minute=cfg.max_requests_per_minute,
+            seed_field="random_seed" if cfg.provider == "mistral" else "seed",
+        )
+
+    tailoring = _provider(config.llm.tailoring)        # Cerebras gpt-oss-120b
+    distiller = _provider(config.llm.distillation)     # Mistral mistral-small
     # master_tex_path points at the master.tex FILE; parse_master wants its dir root.
     master_root = Path(config.resume.master_tex_path).parent
     tailor = ResumeTailor(tailoring, parse_master(master_root))
@@ -241,14 +246,8 @@ def build_tools(config: Any) -> CvflowTools:
     from cvflow.analysis import JDAnalyzer
     from cvflow.discovery import DiscoveryService
     from cvflow.discovery.benchmark import build_fingerprint
-    from cvflow.llm import NimProvider
 
-    brain = NimProvider(
-        base_url=config.llm.brain.base_url,
-        api_key=config.llm.brain.api_key,
-        model=config.llm.brain.model,
-        max_requests_per_minute=config.llm.brain.max_requests_per_minute,
-    )
+    brain = _provider(config.llm.brain)
     fingerprint = build_fingerprint(
         prefs_text=knowledge.full_context(), prefer_roles=config.preferences.prefer_roles
     )
@@ -264,7 +263,7 @@ def build_tools(config: Any) -> CvflowTools:
         min_ctc_lpa=config.preferences.min_ctc_lpa,
         country_indeed=config.discovery.country_indeed,
         linkedin_fetch_description=config.discovery.linkedin_fetch_description,
-        gemini=tailoring,
+        distiller=distiller,
         brain=brain,
         fingerprint=fingerprint,
         prefer_roles=config.preferences.prefer_roles,
