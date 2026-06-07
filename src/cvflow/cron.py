@@ -24,23 +24,28 @@ def format_digest(result: dict[str, Any]) -> str:
         p = bj.posting
         company = p.company or "Unknown company"
         pay = f" · {round(bj.ctc_lpa)} LPA" if getattr(bj, "ctc_lpa", None) else ""
+        loc = f" · {p.location}" if p.location else ""
         concerns = f"  ⚠️ {'; '.join(bj.concerns)}\n" if bj.concerns else ""
         return (
-            f"{i}. {p.title} @ {company}  (bench {bj.benchmark} · fit {bj.fit_score}{pay})\n"
+            f"{i}. {p.title} @ {company}  (bench {bj.benchmark} · fit {bj.fit_score}{pay}{loc})\n"
             f"  {p.url}\n  {bj.fit_reason}\n{concerns}"
             f"  /apply {p.job_id} | /skip {p.job_id}\n"
         )
 
+    parts.append("💰 With stated pay (ranked by value)\n")
     if m:
-        parts.append("💰 With stated pay (ranked by value)\n")
         for bj in m:
             parts.append(_block(bj, idx))
             idx += 1
+    else:
+        parts.append("No stated-pay jobs today.\n")
+    parts.append("📋 Pay not stated (ranked by fit)\n")
     if n:
-        parts.append("📋 Pay not stated (ranked by fit)\n")
         for bj in n:
             parts.append(_block(bj, idx))
             idx += 1
+    else:
+        parts.append("No pay-not-stated jobs today.\n")
     parts.append("Reply: /apply 1 2 4  •  /skip 3  •  /apply all")
     return "\n".join(parts)
 

@@ -158,3 +158,17 @@ def test_run_job_learn_appends_dated_log(tmp_path):
     assert len(logs) == 1
     body = logs[0].read_text()
     assert "service companies" in body and "frontend" in body  # suggestion + stats snapshot
+
+
+def test_format_digest_shows_location():
+    result = {"M": [_bj("indeed:7", "M", 70, lpa=18.0)], "N": []}
+    text = format_digest(result)
+    assert "Remote" in text  # _bj posting.location == "Remote"
+
+
+def test_format_digest_empty_section_shows_one_liner():
+    result = {"M": [], "N": [_bj("indeed:2", "N", 80)]}
+    text = format_digest(result)
+    assert "With stated pay" in text
+    assert "No stated-pay jobs today." in text
+    assert "Pay not stated" in text
