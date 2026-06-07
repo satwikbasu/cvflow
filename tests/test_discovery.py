@@ -436,3 +436,26 @@ def test_default_dedup_excludes_all_seen():
                              sleep=lambda s: None, locations=["Remote"])  # default: not reconsider
     result = svc.discover()
     assert _all_ids(result) == {"linkedin:2"}
+
+
+def test_naukri_fetched_via_adapter_and_excluded_from_jobspy():
+    store = ApplicationStore(":memory:")
+    captured = {}
+
+    def search_fn(**kwargs):
+        captured["site_name"] = kwargs["site_name"]
+        return [_row("j1", site="linkedin")]
+
+    def naukri_fn(**kwargs):
+        captured["naukri_called"] = True
+        return [_row("n1", site="naukri")]
+
+    svc = _two_stage_service(
+        store, search_fn, throttle_seconds=0.0, sleep=lambda s: None,
+        locations=["Remote"], sites=["linkedin", "naukri"], naukri_search_fn=naukri_fn,
+    )
+    result = svc.discover()
+    ids = _all_ids(result)
+    assert "naukri:n1" in ids and "linkedin:j1" in ids   # both merged + ranked
+    assert captured["naukri_called"] is True
+    assert "naukri" not in captured["site_name"]          # JobSpy never asked for naukri

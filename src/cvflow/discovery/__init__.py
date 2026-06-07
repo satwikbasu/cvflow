@@ -137,6 +137,7 @@ from cvflow.discovery.benchmark import (  # noqa: E402
     fit_scores,
 )
 from cvflow.discovery.distill import Crux, Distiller, distill_all  # noqa: E402
+from cvflow.discovery.naukri import search_naukri  # noqa: E402
 from cvflow.discovery.rules import crux_excluded  # noqa: E402
 
 
@@ -174,6 +175,7 @@ class DiscoveryService:
         self,
         store: Any,
         search_fn: SearchFn = _jobspy_search,
+        naukri_search_fn: SearchFn = search_naukri,
         *,
         search_terms: list[str],
         locations: list[str],
@@ -209,6 +211,11 @@ class DiscoveryService:
         self._search_terms = search_terms
         self._locations = locations
         self._sites = sites
+        # Naukri's API needs our own nkparam-signed client (JobSpy's naukri 406s); split it
+        # out of the JobSpy site list and fetch it via the dedicated adapter.
+        self._naukri_search_fn = naukri_search_fn
+        self._naukri_enabled = "naukri" in sites
+        self._jobspy_sites = [s for s in sites if s != "naukri"]
         self._results_wanted_per_site = results_wanted_per_site
         self._hours_old = hours_old
         self._top_n = top_n
@@ -235,26 +242,42 @@ class DiscoveryService:
         rows: list[dict[str, Any]] = []
         for term in self._search_terms:
             for location in self._locations:
-                try:
-                    rows.extend(
-                        self._search_fn(
-                            site_name=self._sites,
-                            search_term=term,
-                            location=location,
-                            results_wanted=self._results_wanted_per_site,
-                            hours_old=self._hours_old,
-                            country_indeed=self._country_indeed,
-                            linkedin_fetch_description=self._linkedin_fetch_description,
+                if self._jobspy_sites:
+                    try:
+                        rows.extend(
+                            self._search_fn(
+                                site_name=self._jobspy_sites,
+                                search_term=term,
+                                location=location,
+                                results_wanted=self._results_wanted_per_site,
+                                hours_old=self._hours_old,
+                                country_indeed=self._country_indeed,
+                                linkedin_fetch_description=self._linkedin_fetch_description,
+                            )
                         )
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    # JobSpy/board scraping is brittle (anti-bot 403s, endpoint drift,
-                    # a single unparseable posting). One failing batch must never abort
-                    # the whole run or silence the digest (invariant 3) — log + continue.
-                    logger.warning(
-                        "discovery search failed for term=%r location=%r: %s",
-                        term, location, exc,
-                    )
+                    except Exception as exc:  # noqa: BLE001
+                        # JobSpy/board scraping is brittle (anti-bot 403s, endpoint drift,
+                        # a single unparseable posting). One failing batch must never abort
+                        # the whole run or silence the digest (invariant 3) — log + continue.
+                        logger.warning(
+                            "discovery search failed for term=%r location=%r: %s",
+                            term, location, exc,
+                        )
+                if self._naukri_enabled:
+                    try:
+                        rows.extend(
+                            self._naukri_search_fn(
+                                search_term=term,
+                                location=location,
+                                results_wanted=self._results_wanted_per_site,
+                                hours_old=self._hours_old,
+                            )
+                        )
+                    except Exception as exc:  # noqa: BLE001 — Naukri must never abort the run
+                        logger.warning(
+                            "naukri search failed for term=%r location=%r: %s",
+                            term, location, exc,
+                        )
                 self._sleep(self._throttle_seconds)
         return rows
 

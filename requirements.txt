@@ -13,3 +13,4 @@ pyyaml                   # config loading
 mcp>=1.0                 # MCP SDK (FastMCP stdio server exposing cvflow skills to Hermes)
 # SQLite is in the Python stdlib (sqlite3); no dependency needed.
 # LaTeX (TeX Live / latexmk) is a system package, not a pip dependency.
+pycryptodome             # Naukri nkparam token generation (RSA, offline) — Phase 14 sourcing
