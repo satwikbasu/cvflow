@@ -362,3 +362,49 @@ def test_prefilter_drops_internship_by_job_type():
 def test_normalize_carries_job_type():
     assert normalize_rows([_row("1", job_type="internship")])[0].job_type == "internship"
     assert normalize_rows([_row("1")])[0].job_type is None
+
+
+def test_discover_partitions_M_from_crux_salary_not_structured():
+    # JobSpy structured salary is empty, but the JD (crux) states INR pay -> must land in M.
+    store = ApplicationStore(":memory:")
+    rows = [
+        _row("1", title="DevOps Engineer", description="pays 18 LPA"),     # crux: 18 LPA/yr -> M
+        _row("2", title="DevOps Engineer", description="₹50k/month"),      # crux: 6 LPA -> below floor, drop
+        _row("3", title="DevOps Engineer", description="no pay listed"),   # no salary -> N
+    ]
+
+    def _crux_json(jid, salary):
+        return json.dumps({
+            "job_id": jid, "role_family": "devops", "seniority_signal": "junior",
+            "min_years_required": 1, "max_years_required": 2, "work_mode": "remote",
+            "location_text": "Remote", "country": "india", "stated_salary": salary,
+            "tech_stack": ["k8s"], "night_shift_only": False, "app_maintenance_focus": False,
+            "company_type": "product", "red_flags": [], "applicant_instructions": None,
+            "one_line": "infra"})
+
+    class _Gem:
+        def generate_structured(self, prompt, *, schema, seed, max_output_tokens):
+            jid = re.search(r"job_id: (\S+)", prompt).group(1)
+            sal = {
+                "linkedin:1": {"min_amount": 1500000, "max_amount": 1800000, "currency": "INR",
+                               "period": "year"},
+                "linkedin:2": {"min_amount": 50000, "max_amount": 50000, "currency": "INR",
+                               "period": "month"},
+                "linkedin:3": None,
+            }[jid]
+            return _crux_json(jid, sal)
+
+        def generate(self, prompt, **kw):
+            ids = sorted(set(re.findall(r'"job_id": "([^"]+)"', prompt)))
+            return json.dumps({"results": [{"job_id": i, "fit_score": 80, "fit_reason": "ok",
+                                            "concern_codes": []} for i in ids]})
+
+    svc = _two_stage_service(store, lambda **k: rows, throttle_seconds=0.0,
+                             sleep=lambda s: None, locations=["Remote"], min_ctc_lpa=7,
+                             distiller=_Gem())
+    result = svc.discover()
+    assert [j.posting.job_id for j in result["M"]] == ["linkedin:1"]   # 18 LPA -> M
+    assert [j.posting.job_id for j in result["N"]] == ["linkedin:3"]   # no pay -> N
+    assert result["M"][0].ctc_lpa == 18.0                              # crux salary used for comp
+    # linkedin:2 (₹50k/mo = 6 LPA) dropped by the salary floor
+    assert "linkedin:2" not in {j.posting.job_id for j in result["M"] + result["N"]}

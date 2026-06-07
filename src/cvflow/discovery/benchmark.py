@@ -22,6 +22,8 @@ __all__ = [
     "benchmark_cohort",
     "fit_scores",
     "build_fingerprint",
+    "crux_salary_lpa",
+    "effective_lpa",
     "FIT_SEED",
 ]
 
@@ -63,6 +65,34 @@ def _ctc_lpa(posting: JobPosting) -> float | None:
     return amount / 100_000
 
 
+_INR_TOKENS = {"INR", "RS", "RS.", "₹", "RUPEES", "INR."}
+
+
+def crux_salary_lpa(crux: Any) -> float | None:
+    """Annual INR LPA from a crux's extracted ``stated_salary`` (the JD often states pay
+    that JobSpy's structured fields miss). Handles ₹/INR and monthly→annual; non-INR or
+    hourly/unknown → None (no FX, never fabricate)."""
+    s = getattr(crux, "stated_salary", None) if crux is not None else None
+    if s is None:
+        return None
+    cur = (s.currency or "").upper().strip()
+    if cur not in _INR_TOKENS and "₹" not in (s.currency or ""):
+        return None
+    amount = s.max_amount if s.max_amount is not None else s.min_amount
+    if amount is None:
+        return None
+    annual = float(amount) * 12 if s.period == "month" else float(amount)
+    if s.period not in ("year", "month", "unknown"):
+        return None  # hourly etc. — don't guess
+    return annual / 100_000
+
+
+def effective_lpa(posting: JobPosting, crux: Any) -> float | None:
+    """Best INR annual LPA for a job: prefer the crux-extracted salary, else JobSpy's
+    structured field. None when no INR salary is stated anywhere."""
+    return crux_salary_lpa(crux) if crux_salary_lpa(crux) is not None else _ctc_lpa(posting)
+
+
 def benchmark_cohort(
     jobs: dict[str, JobPosting],
     fits: dict[str, FitResult],
@@ -84,7 +114,7 @@ def benchmark_cohort(
     out: list[BenchmarkedJob] = []
     for job_id, posting in jobs.items():
         fit = fits.get(job_id, FitResult(0, "(no fit score)", ["RANKING_DEGRADED"]))
-        lpa = _ctc_lpa(posting)
+        lpa = effective_lpa(posting, cruxes.get(job_id))
         if cohort == "M" and lpa is not None:
             c = comp_score(lpa, min_lpa, top_lpa)
             score = round(100 * (fit_weight * fit.fit_score / 100 + comp_weight * c))

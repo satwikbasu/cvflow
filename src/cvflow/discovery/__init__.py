@@ -131,6 +131,7 @@ SearchFn = Callable[..., list[dict[str, Any]]]
 from cvflow.discovery.benchmark import (  # noqa: E402
     BenchmarkedJob,
     benchmark_cohort,
+    effective_lpa,
     fit_scores,
 )
 from cvflow.discovery.distill import Crux, Distiller, distill_all  # noqa: E402
@@ -283,52 +284,29 @@ class DiscoveryService:
             kept.append(p)
         return kept
 
-    @staticmethod
-    def _has_inr_salary(p: JobPosting) -> bool:
-        amount = p.max_amount if p.max_amount is not None else p.min_amount
-        return amount is not None and (p.currency or "INR").upper() == "INR"
-
-    def _benchmark_cohort(
-        self, postings: list[JobPosting], cohort: str
+    def _rank_cohort(
+        self, cohort: str, cruxes: list[Crux], by_id: dict[str, JobPosting]
     ) -> list[BenchmarkedJob]:
-        if not postings:
+        """Fit-score + benchmark one already-distilled, already-partitioned cohort."""
+        if not cruxes:
             return []
-        capped = sorted(postings, key=lambda p: p.date_posted, reverse=True)[
-            : self._max_distill_per_cohort
-        ]
-        distiller = Distiller(self._distiller_provider, seed=self._distill_seed)
-        t = time.monotonic()
-        cruxes = distill_all(capped, self._store, distiller)
-        logger.info(
-            "cohort %s: distilled %d/%d jobs in %.1fs",
-            cohort, len(cruxes), len(capped), time.monotonic() - t,
-        )
-        kept_cruxes: list[Crux] = []
-        for c in cruxes:
-            excluded, reason = crux_excluded(c.model_dump(), self._exclude_when)
-            if excluded:
-                logger.info("exclude_when drop %s: %s", c.job_id, reason)
-                continue
-            kept_cruxes.append(c)
-        logger.info("cohort %s: %d kept after exclude_when gate", cohort, len(kept_cruxes))
-        by_id = {p.job_id: p for p in capped}
-        jobs = {c.job_id: by_id[c.job_id] for c in kept_cruxes}
+        jobs = {c.job_id: by_id[c.job_id] for c in cruxes}
         t = time.monotonic()
         # Fit runs on the distillation provider (Mistral) — it enforces the json_schema
         # array shape that NIM can't (NIM ignores schemas + emits a single object).
         fits = fit_scores(
-            kept_cruxes, fingerprint=self._fingerprint,
+            cruxes, fingerprint=self._fingerprint,
             prefer_roles=self._prefer_roles, provider=self._distiller_provider,
         )
         logger.info(
             "cohort %s: fit-scored %d cruxes in %.1fs (1 call)",
-            cohort, len(kept_cruxes), time.monotonic() - t,
+            cohort, len(cruxes), time.monotonic() - t,
         )
         ranked = benchmark_cohort(
             jobs, fits, cohort=cohort, fit_weight=self._fit_weight,
             comp_weight=self._comp_weight, min_lpa=self._min_ctc_lpa,
             top_lpa=self._top_ctc_lpa,
-            cruxes={c.job_id: c for c in kept_cruxes},
+            cruxes={c.job_id: c for c in cruxes},
         )
         return ranked[: self._top_n_per_cohort]
 
@@ -342,10 +320,39 @@ class DiscoveryService:
             "stage prefilter+dedup: %d candidates (from %d postings)",
             len(candidates), len(postings),
         )
-        m = [p for p in candidates if self._has_inr_salary(p)]
-        n = [p for p in candidates if not self._has_inr_salary(p)]
-        logger.info("cohorts: M (stated INR pay)=%d, N (no stated pay)=%d", len(m), len(n))
-        result = {"M": self._benchmark_cohort(m, "M"), "N": self._benchmark_cohort(n, "N")}
+        # Distill ONCE over the newest candidates, then partition — salary is usually only
+        # in the JD text (JobSpy structured fields are empty), so the M/N split must use the
+        # crux-extracted salary, not the pre-distill structured field.
+        capped = sorted(candidates, key=lambda p: p.date_posted, reverse=True)[
+            : self._max_distill_per_cohort
+        ]
+        by_id = {p.job_id: p for p in capped}
+        distiller = Distiller(self._distiller_provider, seed=self._distill_seed)
+        t = time.monotonic()
+        cruxes = distill_all(capped, self._store, distiller)
+        logger.info(
+            "stage distill: %d/%d jobs in %.1fs", len(cruxes), len(capped), time.monotonic() - t
+        )
+        m_cruxes: list[Crux] = []
+        n_cruxes: list[Crux] = []
+        for c in cruxes:
+            excluded, reason = crux_excluded(c.model_dump(), self._exclude_when)
+            if excluded:
+                logger.info("exclude_when drop %s: %s", c.job_id, reason)
+                continue
+            lpa = effective_lpa(by_id[c.job_id], c)
+            if lpa is not None and lpa < self._min_ctc_lpa:
+                logger.info("salary-floor drop %s: %.1f LPA < %d", c.job_id, lpa, self._min_ctc_lpa)
+                continue
+            (m_cruxes if lpa is not None else n_cruxes).append(c)
+        logger.info(
+            "cohorts after gate+partition: M (stated INR pay)=%d, N (no stated pay)=%d",
+            len(m_cruxes), len(n_cruxes),
+        )
+        result = {
+            "M": self._rank_cohort("M", m_cruxes, by_id),
+            "N": self._rank_cohort("N", n_cruxes, by_id),
+        }
         for cohort in result.values():
             for bj in cohort:
                 p = bj.posting
