@@ -408,3 +408,31 @@ def test_discover_partitions_M_from_crux_salary_not_structured():
     assert result["M"][0].ctc_lpa == 18.0                              # crux salary used for comp
     # linkedin:2 (₹50k/mo = 6 LPA) dropped by the salary floor
     assert "linkedin:2" not in {j.posting.job_id for j in result["M"] + result["N"]}
+
+
+def test_reconsider_discovered_reshows_discovered_but_not_applied():
+    from cvflow.statemachine import Status
+    store = ApplicationStore(":memory:")
+    store.add("linkedin:1", "Co", "Role", "https://x/1")  # stays 'discovered'
+    store.add("linkedin:2", "Co", "Role", "https://x/2")
+    store.set_status("linkedin:2", Status.PENDING_REVIEW)
+    store.approve("linkedin:2")  # advanced past discovered -> still excluded
+
+    rows = [_row("1"), _row("2"), _row("3")]
+    svc = _two_stage_service(store, lambda **k: rows, throttle_seconds=0.0,
+                             sleep=lambda s: None, locations=["Remote"],
+                             reconsider_discovered=True)
+    result = svc.discover()
+    ids = _all_ids(result)
+    assert "linkedin:1" in ids   # re-shown (was only 'discovered')
+    assert "linkedin:2" not in ids  # acted on -> still deduped
+    assert "linkedin:3" in ids   # brand new
+
+
+def test_default_dedup_excludes_all_seen():
+    store = ApplicationStore(":memory:")
+    store.add("linkedin:1", "Co", "Role", "https://x/1")  # 'discovered'
+    svc = _two_stage_service(store, lambda **k: [_row("1"), _row("2")], throttle_seconds=0.0,
+                             sleep=lambda s: None, locations=["Remote"])  # default: not reconsider
+    result = svc.discover()
+    assert _all_ids(result) == {"linkedin:2"}

@@ -274,6 +274,7 @@ def build_tools(config: Any) -> CvflowTools:
         max_distill_per_cohort=config.discovery.max_distill_per_cohort,
         top_n_per_cohort=config.discovery.top_n_per_cohort,
         yoe_ceiling=config.preferences.yoe_have + config.preferences.yoe_buffer,
+        reconsider_discovered=config.discovery.reconsider_discovered,
     )
     analyzer = JDAnalyzer(brain)
 

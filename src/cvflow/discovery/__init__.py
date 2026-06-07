@@ -22,6 +22,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from cvflow.statemachine import Status
+
 __all__ = [
     "JobPosting",
     "BenchmarkedJob",
@@ -198,10 +200,12 @@ class DiscoveryService:
         top_n_per_cohort: int = 5,
         distill_seed: int = 73,
         yoe_ceiling: int | None = None,
+        reconsider_discovered: bool = False,
     ) -> None:
         self._store = store
         self._search_fn = search_fn
         self._yoe_ceiling = yoe_ceiling
+        self._reconsider_discovered = reconsider_discovered
         self._search_terms = search_terms
         self._locations = locations
         self._sites = sites
@@ -310,12 +314,23 @@ class DiscoveryService:
         )
         return ranked[: self._top_n_per_cohort]
 
+    def _already_seen(self, job_id: str) -> bool:
+        """Cross-day dedup. Normally any job in the store is 'seen'. With
+        ``reconsider_discovered``, a job that's only ever been DISCOVERED (never acted on)
+        is re-rankable — only jobs advanced past discovery stay excluded."""
+        if not self._store.exists(job_id):
+            return False
+        if self._reconsider_discovered:
+            app = self._store.get(job_id)
+            return app is not None and app.status != Status.DISCOVERED
+        return True
+
     def discover(self) -> dict[str, list[BenchmarkedJob]]:
         t0 = time.monotonic()
         rows = self._gather_rows()
         logger.info("stage scrape: %d raw rows in %.1fs", len(rows), time.monotonic() - t0)
         postings = self._prefilter(normalize_rows(rows))
-        candidates = [p for p in postings if not self._store.exists(p.job_id)]
+        candidates = [p for p in postings if not self._already_seen(p.job_id)]
         logger.info(
             "stage prefilter+dedup: %d candidates (from %d postings)",
             len(candidates), len(postings),

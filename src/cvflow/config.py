@@ -46,6 +46,7 @@ class DiscoveryConfig:
     linkedin_fetch_description: bool
     max_distill_per_cohort: int
     top_n_per_cohort: int
+    reconsider_discovered: bool
 
 
 @dataclass(frozen=True)
@@ -287,6 +288,7 @@ def load_config(path: str | Path) -> Config:
             linkedin_fetch_description=_get_bool(disc, "linkedin_fetch_description", "discovery."),
             max_distill_per_cohort=_get_int(disc, "max_distill_per_cohort", "discovery."),
             top_n_per_cohort=_get_int(disc, "top_n_per_cohort", "discovery."),
+            reconsider_discovered=_get_bool(disc, "reconsider_discovered", "discovery."),
         ),
         preferences=PreferencesConfig(
             yoe_have=_get_int(pref, "yoe_have", "preferences."),

@@ -31,6 +31,7 @@ VALID_YAML = textwrap.dedent(
       linkedin_fetch_description: true
       max_distill_per_cohort: 60
       top_n_per_cohort: 5
+      reconsider_discovered: false
     preferences:
       yoe_have: 1
       min_ctc_lpa: 7
@@ -166,6 +167,7 @@ def test_preferences_block_parsed(tmp_path):
           linkedin_fetch_description: true
           max_distill_per_cohort: 60
           top_n_per_cohort: 5
+          reconsider_discovered: true
         preferences:
           yoe_have: 1
           min_ctc_lpa: 7
@@ -251,6 +253,7 @@ def test_phase14_preferences_and_discovery_fields(tmp_path):
     assert cfg.discovery.linkedin_fetch_description is True
     assert cfg.discovery.max_distill_per_cohort == 60
     assert cfg.discovery.top_n_per_cohort == 5
+    assert cfg.discovery.reconsider_discovered is False
 
 
 def test_phase14_weights_must_sum_to_one(tmp_path):

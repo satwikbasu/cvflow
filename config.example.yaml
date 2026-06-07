@@ -23,6 +23,8 @@ discovery:
   linkedin_fetch_description: true  # fetch full LinkedIn JD text so distillation has content
   max_distill_per_cohort: 60      # recency-cap each cohort before Gemini distillation
   top_n_per_cohort: 5             # how many ranked jobs to show per M/N section
+  reconsider_discovered: false    # TESTING: set true to re-rank already-shown (un-applied)
+                                  # jobs each run instead of dedup'ing them; false in production
 
 preferences:
   yoe_have: 1
