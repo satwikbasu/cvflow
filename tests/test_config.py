@@ -27,6 +27,10 @@ VALID_YAML = textwrap.dedent(
       results_wanted_per_site: 25
       hours_old: 72
       top_n_to_present: 8
+      country_indeed: india
+      linkedin_fetch_description: true
+      max_distill_per_cohort: 60
+      top_n_per_cohort: 5
     preferences:
       yoe_have: 1
       min_ctc_lpa: 7
@@ -35,6 +39,16 @@ VALID_YAML = textwrap.dedent(
       prefer_product_companies: true
       exclude_app_maintenance: true
       exclude_night_shift_only: true
+      yoe_buffer: 2
+      top_ctc_lpa: 40
+      fit_weight: 0.7
+      comp_weight: 0.3
+      prefer_roles:
+        devops: 1.0
+        backend: 0.8
+      exclude_when:
+        - {field: night_shift_only, equals: true}
+        - {field: min_years_required, greater_than: 3}
     llm:
       brain:
         provider: "nvidia_nim"
@@ -139,6 +153,10 @@ def test_preferences_block_parsed(tmp_path):
           results_wanted_per_site: 5
           hours_old: 72
           top_n_to_present: 5
+          country_indeed: india
+          linkedin_fetch_description: true
+          max_distill_per_cohort: 60
+          top_n_per_cohort: 5
         preferences:
           yoe_have: 1
           min_ctc_lpa: 7
@@ -147,6 +165,15 @@ def test_preferences_block_parsed(tmp_path):
           prefer_product_companies: true
           exclude_app_maintenance: true
           exclude_night_shift_only: true
+          yoe_buffer: 2
+          top_ctc_lpa: 40
+          fit_weight: 0.7
+          comp_weight: 0.3
+          prefer_roles:
+            devops: 1.0
+            backend: 0.8
+          exclude_when:
+            - {field: night_shift_only, equals: true}
         llm:
           brain:
             provider: nvidia
@@ -190,3 +217,31 @@ def test_preferences_block_parsed(tmp_path):
     assert cfg.preferences.prefer_product_companies is True
     assert cfg.preferences.exclude_app_maintenance is True
     assert cfg.preferences.exclude_night_shift_only is True
+
+
+def test_phase14_preferences_and_discovery_fields(tmp_path):
+    from cvflow.config import load_config
+    cfg = load_config(_write(tmp_path, VALID_YAML))
+    assert cfg.preferences.yoe_buffer == 2
+    assert cfg.preferences.top_ctc_lpa == 40
+    assert cfg.preferences.fit_weight == 0.7
+    assert cfg.preferences.comp_weight == 0.3
+    assert cfg.preferences.prefer_roles == {"devops": 1.0, "backend": 0.8}
+    assert cfg.preferences.exclude_when == [
+        {"field": "night_shift_only", "equals": True},
+        {"field": "min_years_required", "greater_than": 3},
+    ]
+    assert cfg.discovery.country_indeed == "india"
+    assert cfg.discovery.linkedin_fetch_description is True
+    assert cfg.discovery.max_distill_per_cohort == 60
+    assert cfg.discovery.top_n_per_cohort == 5
+
+
+def test_phase14_weights_must_sum_to_one(tmp_path):
+    import pytest
+
+    from cvflow.config import ConfigError, load_config
+    bad = VALID_YAML.replace("fit_weight: 0.7", "fit_weight: 0.8")
+    with pytest.raises(ConfigError) as exc:
+        load_config(_write(tmp_path, bad))
+    assert "fit_weight" in str(exc.value) and "sum" in str(exc.value).lower()

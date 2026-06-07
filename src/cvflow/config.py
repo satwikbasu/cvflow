@@ -42,6 +42,10 @@ class DiscoveryConfig:
     results_wanted_per_site: int
     hours_old: int
     top_n_to_present: int
+    country_indeed: str
+    linkedin_fetch_description: bool
+    max_distill_per_cohort: int
+    top_n_per_cohort: int
 
 
 @dataclass(frozen=True)
@@ -53,6 +57,12 @@ class PreferencesConfig:
     prefer_product_companies: bool
     exclude_app_maintenance: bool
     exclude_night_shift_only: bool
+    yoe_buffer: int
+    top_ctc_lpa: int
+    fit_weight: float
+    comp_weight: float
+    prefer_roles: dict[str, float]
+    exclude_when: list[dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -173,6 +183,35 @@ def _get_str_list(data: dict[str, Any], key: str, path: str) -> list[str]:
     return list(value)
 
 
+def _get_float(data: dict[str, Any], key: str, path: str) -> float:
+    if key not in data:
+        raise ConfigError(f"missing required key: {path}{key}")
+    value = data[key]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ConfigError(f"key {path}{key} must be a number")
+    return float(value)
+
+
+def _get_role_map(data: dict[str, Any], key: str, path: str) -> dict[str, float]:
+    value = _get(data, key, dict, path)
+    out: dict[str, float] = {}
+    for k, v in value.items():
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            raise ConfigError(f"key {path}{key}.{k} must be a number")
+        out[str(k)] = float(v)
+    return out
+
+
+def _get_rule_list(data: dict[str, Any], key: str, path: str) -> list[dict[str, Any]]:
+    value = _get(data, key, list, path)
+    rules: list[dict[str, Any]] = []
+    for i, item in enumerate(value):
+        if not isinstance(item, dict) or "field" not in item:
+            raise ConfigError(f"{path}{key}[{i}] must be a mapping with a 'field' key")
+        rules.append(dict(item))
+    return rules
+
+
 def load_config(path: str | Path) -> Config:
     """Load, validate, and return the typed config at ``path``.
 
@@ -209,6 +248,13 @@ def load_config(path: str | Path) -> Config:
     if not _TIME_RE.match(daily_time):
         raise ConfigError(f"schedule.daily_discovery_time must be HH:MM, got {daily_time!r}")
 
+    _fit_w = _get_float(pref, "fit_weight", "preferences.")
+    _comp_w = _get_float(pref, "comp_weight", "preferences.")
+    if abs(_fit_w + _comp_w - 1.0) > 1e-6:
+        raise ConfigError(
+            f"preferences.fit_weight + comp_weight must sum to 1.0, got {_fit_w + _comp_w}"
+        )
+
     return Config(
         telegram=TelegramConfig(
             bot_token=_get_str(tg, "bot_token", "telegram.").strip(),
@@ -226,6 +272,10 @@ def load_config(path: str | Path) -> Config:
             results_wanted_per_site=_get_int(disc, "results_wanted_per_site", "discovery."),
             hours_old=_get_int(disc, "hours_old", "discovery."),
             top_n_to_present=_get_int(disc, "top_n_to_present", "discovery."),
+            country_indeed=_get_str(disc, "country_indeed", "discovery."),
+            linkedin_fetch_description=_get_bool(disc, "linkedin_fetch_description", "discovery."),
+            max_distill_per_cohort=_get_int(disc, "max_distill_per_cohort", "discovery."),
+            top_n_per_cohort=_get_int(disc, "top_n_per_cohort", "discovery."),
         ),
         preferences=PreferencesConfig(
             yoe_have=_get_int(pref, "yoe_have", "preferences."),
@@ -235,6 +285,12 @@ def load_config(path: str | Path) -> Config:
             prefer_product_companies=_get_bool(pref, "prefer_product_companies", "preferences."),
             exclude_app_maintenance=_get_bool(pref, "exclude_app_maintenance", "preferences."),
             exclude_night_shift_only=_get_bool(pref, "exclude_night_shift_only", "preferences."),
+            yoe_buffer=_get_int(pref, "yoe_buffer", "preferences."),
+            top_ctc_lpa=_get_int(pref, "top_ctc_lpa", "preferences."),
+            fit_weight=_fit_w,
+            comp_weight=_comp_w,
+            prefer_roles=_get_role_map(pref, "prefer_roles", "preferences."),
+            exclude_when=_get_rule_list(pref, "exclude_when", "preferences."),
         ),
         llm=LLMConfig(
             brain=BrainConfig(
