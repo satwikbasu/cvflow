@@ -239,3 +239,20 @@ def test_crux_cache_roundtrip():
     assert s.get_crux("indeed:1") == '{"job_id":"indeed:1"}'
     s.save_crux("indeed:1", '{"job_id":"indeed:1","v":2}')  # upsert
     assert s.get_crux("indeed:1") == '{"job_id":"indeed:1","v":2}'
+
+
+def test_decisions_log_roundtrip():
+    from cvflow.storage import ApplicationStore
+    s = ApplicationStore(":memory:")
+    s.add_decision(job_id="indeed:1", decision="apply", cohort="M", benchmark=80,
+                   fit_score=85, role_family="devops", company="Acme",
+                   company_type="product", ctc_lpa=18.0, concerns=["FX"])
+    s.add_decision(job_id="indeed:2", decision="skip", cohort="N", benchmark=40,
+                   fit_score=40, role_family="frontend", company="Svc",
+                   company_type="service", ctc_lpa=None, concerns=[])
+    rows = s.recent_decisions(10)
+    assert len(rows) == 2
+    assert rows[0]["decision"] in ("apply", "skip")
+    apply_rows = [r for r in rows if r["decision"] == "apply"]
+    assert apply_rows[0]["role_family"] == "devops"
+    assert apply_rows[0]["ctc_lpa"] == 18.0

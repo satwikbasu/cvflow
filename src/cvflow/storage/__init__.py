@@ -16,6 +16,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from cvflow.analysis import JDAnalysis
 from cvflow.statemachine import Status, approve, transition
@@ -92,6 +93,20 @@ CREATE TABLE IF NOT EXISTS job_cruxes (
     job_id       TEXT PRIMARY KEY,
     crux_json    TEXT NOT NULL,
     distilled_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS decisions (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id       TEXT NOT NULL,
+    decision     TEXT NOT NULL,
+    decided_at   TEXT NOT NULL,
+    cohort       TEXT,
+    benchmark    INTEGER,
+    fit_score    INTEGER,
+    role_family  TEXT,
+    company      TEXT,
+    company_type TEXT,
+    ctc_lpa      REAL,
+    concerns     TEXT
 );
 """
 
@@ -301,6 +316,28 @@ class ApplicationStore:
             "SELECT crux_json FROM job_cruxes WHERE job_id = ?", (job_id,)
         ).fetchone()
         return row["crux_json"] if row is not None else None
+
+    def add_decision(
+        self, *, job_id: str, decision: str, cohort: str | None = None,
+        benchmark: int | None = None, fit_score: int | None = None,
+        role_family: str | None = None, company: str | None = None,
+        company_type: str | None = None, ctc_lpa: float | None = None,
+        concerns: list[str] | None = None,
+    ) -> None:
+        self._conn.execute(
+            "INSERT INTO decisions (job_id, decision, decided_at, cohort, benchmark, "
+            "fit_score, role_family, company, company_type, ctc_lpa, concerns) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (job_id, decision, _now(), cohort, benchmark, fit_score, role_family,
+             company, company_type, ctc_lpa, json.dumps(concerns or [])),
+        )
+        self._conn.commit()
+
+    def recent_decisions(self, limit: int) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT * FROM decisions ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 @dataclass(frozen=True)
