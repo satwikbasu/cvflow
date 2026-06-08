@@ -139,6 +139,7 @@ from cvflow.discovery.benchmark import (  # noqa: E402
 from cvflow.discovery.distill import Crux, Distiller, distill_all  # noqa: E402
 from cvflow.discovery.naukri import search_naukri  # noqa: E402
 from cvflow.discovery.rules import crux_excluded  # noqa: E402
+from cvflow.discovery.skills import coverage_drop  # noqa: E402
 
 
 def _jobspy_search(
@@ -202,6 +203,9 @@ class DiscoveryService:
         distill_seed: int = 73,
         yoe_ceiling: int | None = None,
         reconsider_discovered: bool = False,
+        candidate_skills: frozenset[str] = frozenset(),
+        skill_synonyms: dict[str, str] | None = None,
+        max_missing_skill_ratio: float = 0.5,
     ) -> None:
         self._store = store
         self._search_fn = search_fn
@@ -235,6 +239,9 @@ class DiscoveryService:
         self._max_distill_per_cohort = max_distill_per_cohort
         self._top_n_per_cohort = top_n_per_cohort
         self._distill_seed = distill_seed
+        self._candidate_skills = candidate_skills
+        self._skill_synonyms = skill_synonyms or {}
+        self._max_missing_skill_ratio = max_missing_skill_ratio
 
     def _gather_rows(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
@@ -382,6 +389,17 @@ class DiscoveryService:
             if excluded:
                 logger.info("exclude_when drop %s: %s", c.job_id, reason)
                 continue
+            # Deterministic must-have skill gate: drop jobs whose stated mandatory skills
+            # are mostly ones the candidate lacks (a hard requirement — enforced in code,
+            # never delegated to the fit LLM, which over-credits incidental overlap).
+            if self._candidate_skills:
+                drop, missing = coverage_drop(
+                    c.must_have_skills, self._candidate_skills, self._skill_synonyms,
+                    max_missing_ratio=self._max_missing_skill_ratio,
+                )
+                if drop:
+                    logger.info("must-have drop %s: missing %s", c.job_id, missing)
+                    continue
             lpa = effective_lpa(by_id[c.job_id], c)
             if lpa is not None and lpa < self._min_ctc_lpa:
                 logger.info("salary-floor drop %s: %.1f LPA < %d", c.job_id, lpa, self._min_ctc_lpa)

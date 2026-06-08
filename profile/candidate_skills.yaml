@@ -1,0 +1,63 @@
+# Curated, machine-readable skill set for the deterministic must-have gate
+# (src/cvflow/discovery/skills.py). PII, no secrets — committed per CLAUDE.md
+# invariant 5. Hand-maintained: add a skill here the moment it becomes real, so
+# the gate stops dropping jobs that need it. Matching is exact (after lowercasing
+# + synonym resolution), NOT substring — list each concrete tool you actually know.
+#
+# Source of truth for the prose version: profile/skills.md + experience.md.
+
+skills:
+  # Languages
+  - python
+  - java
+  - go
+  # Web / API
+  - flask
+  - rest
+  # Networking & security
+  - http
+  - tcp/ip
+  - snmp
+  - ipsec
+  - firewall
+  - nat
+  - dns
+  - strongswan
+  # OS / scripting
+  - linux
+  - bash
+  - systemd
+  # Databases
+  - mysql
+  - postgresql
+  # Containers / build / CI
+  - docker
+  - docker compose
+  - docker swarm
+  - maven
+  - jenkins
+  - ci/cd
+  - git
+  # Messaging / monitoring / cloud
+  - kafka
+  - opennms
+  - snmpsim
+  - grafana
+  - oracle cloud
+
+# alias (as it may appear in a JD's must-have list)  ->  canonical skill above
+synonyms:
+  golang: go
+  restful apis: rest
+  rest apis: rest
+  restful api: rest
+  postgres: postgresql
+  linux administration: linux
+  apache kafka: kafka
+  ci-cd: ci/cd
+  cicd: ci/cd
+  continuous integration: ci/cd
+  shell scripting: bash
+  shell: bash
+  oci: oracle cloud
+  oracle cloud infrastructure: oracle cloud

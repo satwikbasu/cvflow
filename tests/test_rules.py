@@ -28,6 +28,14 @@ def test_contains_any_rule():
     assert excluded is True
 
 
+def test_contains_any_matches_scalar_field():
+    # seniority gate: a scalar 'senior' is matched by contains_any [senior, lead]
+    rule = [{"field": "seniority_signal", "contains_any": ["senior", "lead"]}]
+    assert crux_excluded({"seniority_signal": "senior"}, rule)[0] is True
+    assert crux_excluded({"seniority_signal": "lead"}, rule)[0] is True
+    assert crux_excluded({"seniority_signal": "junior"}, rule)[0] is False
+
+
 def test_no_rule_matches_returns_false():
     excluded, reason = crux_excluded(CRUX, [{"field": "night_shift_only", "equals": True}])
     assert excluded is False

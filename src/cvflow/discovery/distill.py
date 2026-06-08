@@ -21,7 +21,7 @@ __all__ = ["Crux", "Salary", "Distiller", "distill_all", "DISTILL_VERSION"]
 
 # Bump whenever the distill prompt or Crux schema changes — invalidates cached cruxes
 # so the new extraction takes effect without a manual cache wipe.
-DISTILL_VERSION = "3"
+DISTILL_VERSION = "4"
 
 
 class Salary(BaseModel):
@@ -74,10 +74,14 @@ _PREAMBLE = (
     "hires worldwide / from any country.\n"
     "- company_type: product vs service/consultancy/staffing vs unknown.\n"
     "- tech_stack: up to 8 concrete tools, lowercased, normalized (kubernetes->k8s).\n"
-    "- must_have_skills: at most 5, and ONLY skills the JD explicitly marks mandatory with "
-    "words like 'must have' / 'required' / 'mandatory' / 'minimum qualification'. If the JD "
-    "merely lists technologies or 'responsibilities', return []. Do NOT dump the whole stack. "
-    "Lowercased, normalized.\n"
+    "- must_have_skills: at most 5 CONCRETE NAMED TECHNOLOGIES (languages, frameworks, "
+    "databases, tools, platforms) the JD explicitly marks mandatory with words like 'must "
+    "have' / 'required' / 'mandatory' / 'minimum qualification'. A deterministic gate matches "
+    "these against the candidate's skill list, so they MUST be specific tool names. NEVER "
+    "output generic phrases ('backend development', 'system design', 'api design', 'data "
+    "structures', 'software engineering', 'problem solving') — those are not skills to match; "
+    "omit them. If the JD merely lists technologies or 'responsibilities', or states no "
+    "mandatory named tool, return []. Do NOT dump the whole stack. Lowercased, normalized.\n"
     "- one_line: <=140 char neutral summary.\n"
     "- applicant_instructions: copy any explicit applicant directive verbatim, else null.\n"
     "- job_id MUST equal the provided job_id exactly.\n"

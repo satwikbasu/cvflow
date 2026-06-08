@@ -99,9 +99,12 @@ def run_job(
 
 def _build(config: Any) -> tuple[Any, Any, Any, Any, Any]:
     """Construct the minimal services for the cron jobs (NO browser/Automator)."""
+    from pathlib import Path
+
     from cvflow.auth import OtpCoordinator
     from cvflow.discovery import DiscoveryService
     from cvflow.discovery.benchmark import build_fingerprint
+    from cvflow.discovery.skills import load_skill_profile
     from cvflow.knowledge import KnowledgeBase
     from cvflow.llm import NimProvider
     from cvflow.notify import HermesNotifier
@@ -123,6 +126,9 @@ def _build(config: Any) -> tuple[Any, Any, Any, Any, Any]:
     distiller = _provider(config.llm.distillation)  # Mistral mistral-small
     fingerprint = build_fingerprint(
         prefs_text=knowledge.full_context(), prefer_roles=config.preferences.prefer_roles
+    )
+    candidate_skills, skill_synonyms = load_skill_profile(
+        Path(config.profile.knowledge_base_dir) / "candidate_skills.yaml"
     )
     discovery = DiscoveryService(
         store,
@@ -147,6 +153,8 @@ def _build(config: Any) -> tuple[Any, Any, Any, Any, Any]:
         top_n_per_cohort=config.discovery.top_n_per_cohort,
         yoe_ceiling=config.preferences.yoe_have + config.preferences.yoe_buffer,
         reconsider_discovered=config.discovery.reconsider_discovered,
+        candidate_skills=candidate_skills,
+        skill_synonyms=skill_synonyms,
     )
     notify = HermesNotifier()
     otp = OtpCoordinator(

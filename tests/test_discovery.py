@@ -438,6 +438,68 @@ def test_default_dedup_excludes_all_seen():
     assert _all_ids(result) == {"linkedin:2"}
 
 
+def _must_have_distiller(by_job):
+    """Distiller stub emitting per-job must_have_skills (everything else neutral)."""
+    class _Gem:
+        def generate_structured(self, prompt, *, schema, seed, max_output_tokens):
+            jid = re.search(r"job_id: (\S+)", prompt).group(1)
+            return json.dumps({
+                "job_id": jid, "role_family": "devops", "seniority_signal": "junior",
+                "min_years_required": 1, "max_years_required": 2, "work_mode": "remote",
+                "location_text": "Remote", "country": "india", "stated_salary": None,
+                "tech_stack": ["k8s"], "must_have_skills": by_job[jid],
+                "night_shift_only": False, "app_maintenance_focus": False,
+                "company_type": "product", "red_flags": [], "applicant_instructions": None,
+                "one_line": "infra"})
+
+        def generate(self, prompt, **kw):
+            ids = sorted(set(re.findall(r'"job_id": "([^"]+)"', prompt)))
+            return json.dumps({"results": [{"job_id": i, "fit_score": 80, "fit_reason": "ok",
+                                            "concern_codes": []} for i in ids]})
+    return _Gem()
+
+
+def test_must_have_skill_gate_drops_majority_missing():
+    store = ApplicationStore(":memory:")
+    rows = [_row("1"), _row("2")]
+    distiller = _must_have_distiller({
+        "linkedin:1": ["python", "go", "docker"],      # all covered -> kept
+        "linkedin:2": ["llm", "openai", "kubernetes"],  # 3/3 missing -> dropped
+    })
+    svc = _two_stage_service(
+        store, lambda **k: rows, throttle_seconds=0.0, sleep=lambda s: None,
+        locations=["Remote"], distiller=distiller,
+        candidate_skills=frozenset({"python", "go", "docker"}), skill_synonyms={},
+    )
+    assert _all_ids(svc.discover()) == {"linkedin:1"}
+
+
+def test_must_have_gate_keeps_minority_missing_and_uses_synonyms():
+    store = ApplicationStore(":memory:")
+    rows = [_row("1")]
+    # golang->go (have), 1 of 5 missing (terraform) -> 20% -> kept
+    distiller = _must_have_distiller(
+        {"linkedin:1": ["golang", "python", "docker", "kafka", "terraform"]}
+    )
+    svc = _two_stage_service(
+        store, lambda **k: rows, throttle_seconds=0.0, sleep=lambda s: None,
+        locations=["Remote"],
+        candidate_skills=frozenset({"go", "python", "docker", "kafka"}),
+        skill_synonyms={"golang": "go"}, distiller=distiller,
+    )
+    assert _all_ids(svc.discover()) == {"linkedin:1"}
+
+
+def test_must_have_gate_disabled_without_candidate_skills():
+    store = ApplicationStore(":memory:")
+    distiller = _must_have_distiller({"linkedin:1": ["llm", "openai", "rust"]})
+    svc = _two_stage_service(  # no candidate_skills -> gate is a no-op
+        store, lambda **k: [_row("1")], throttle_seconds=0.0, sleep=lambda s: None,
+        locations=["Remote"], distiller=distiller,
+    )
+    assert _all_ids(svc.discover()) == {"linkedin:1"}
+
+
 def test_naukri_fetched_via_adapter_and_excluded_from_jobspy():
     store = ApplicationStore(":memory:")
     captured = {}
