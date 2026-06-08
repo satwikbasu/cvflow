@@ -162,13 +162,13 @@ _FIT_PREAMBLE = (
     "role above 39 — do not reward incidental overlap.\n"
     "Modifiers (after the band): -10 service/staffing company; +5 modern infra stack "
     "(docker/k8s/ci-cd/cloud). Clamp 0-100.\n"
-    "HARD GATE: if must_have_skills lists anything the CANDIDATE clearly lacks (synonyms "
-    "count as present, e.g. k8s=kubernetes), CAP fit_score at 40 and add MISSING_MUST_HAVE. "
-    "Empty must_have_skills = no gate.\n"
+    "must_have_skills is given only as context for judging overlap. A deterministic code "
+    "gate has ALREADY dropped jobs the candidate is unqualified for, so do NOT re-judge skill "
+    "coverage, do NOT cap on it, and do NOT emit MISSING_MUST_HAVE.\n"
     'Return a JSON object {"results": [ ... ]} with ONE entry per given job: '
     '{"job_id","fit_score","fit_reason"(<=120 chars),'
     '"concern_codes"(subset of STACK_MISMATCH,SERVICE_COMPANY,SENIORITY_BORDERLINE,'
-    "ROLE_ADJACENT,MISSING_MUST_HAVE)}. Score EVERY job_id given; use only the given job_ids.\n"
+    "ROLE_ADJACENT)}. Score EVERY job_id given; use only the given job_ids.\n"
 )
 
 # Strict JSON-schema for the fit batch — NIM ignores schemas + emits a single object,

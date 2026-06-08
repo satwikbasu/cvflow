@@ -500,6 +500,40 @@ def test_must_have_gate_disabled_without_candidate_skills():
     assert _all_ids(svc.discover()) == {"linkedin:1"}
 
 
+def test_discover_reports_drop_tally_by_bucket():
+    store = ApplicationStore(":memory:")
+    store.add("linkedin:9", "Co", "Seen", "https://x/9")  # already-seen -> dedup bucket
+
+    class _Gem:
+        def generate_structured(self, prompt, *, schema, seed, max_output_tokens):
+            jid = re.search(r"job_id: (\S+)", prompt).group(1)
+            sen = {"linkedin:2": "senior"}.get(jid, "junior")
+            must = {"linkedin:3": ["rust", "scala", "elixir"]}.get(jid, [])
+            return json.dumps({
+                "job_id": jid, "role_family": "devops", "seniority_signal": sen,
+                "min_years_required": 1, "max_years_required": 2, "work_mode": "remote",
+                "location_text": "Remote", "country": "india", "stated_salary": None,
+                "tech_stack": ["k8s"], "must_have_skills": must, "night_shift_only": False,
+                "app_maintenance_focus": False, "company_type": "product", "red_flags": [],
+                "applicant_instructions": None, "one_line": "x"})
+
+        def generate(self, prompt, **kw):
+            ids = sorted(set(re.findall(r'"job_id": "([^"]+)"', prompt)))
+            return json.dumps({"results": [{"job_id": i, "fit_score": 80, "fit_reason": "ok",
+                                            "concern_codes": []} for i in ids]})
+
+    rows = [_row("1"), _row("2"), _row("3"), _row("9")]
+    svc = _two_stage_service(
+        store, lambda **k: rows, throttle_seconds=0.0, sleep=lambda s: None,
+        locations=["Remote"], distiller=_Gem(),
+        candidate_skills=frozenset({"python", "go", "docker"}), skill_synonyms={},
+        exclude_when=[{"field": "seniority_signal", "contains_any": ["senior", "lead"]}],
+    )
+    result = svc.discover()
+    assert _all_ids(result) == {"linkedin:1"}
+    assert result["_dropped"] == {"too senior": 1, "wrong stack": 1, "already seen": 1}
+
+
 def test_naukri_fetched_via_adapter_and_excluded_from_jobspy():
     store = ApplicationStore(":memory:")
     captured = {}

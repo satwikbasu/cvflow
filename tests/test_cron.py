@@ -35,6 +35,19 @@ def test_format_digest_empty():
     assert format_digest({"M": [], "N": []}) == "No new jobs today."
 
 
+def test_format_digest_renders_filtered_footer_in_bucket_order():
+    result = _result()
+    result["_dropped"] = {"wrong stack": 59, "too senior": 71, "already seen": 4, "abroad": 0}
+    text = format_digest(result)
+    # shown in DROP_BUCKET_ORDER (too senior before abroad before wrong stack), zeros omitted
+    assert "🔍 Filtered today: 71 too senior · 59 wrong stack · 4 already seen" in text
+    assert "abroad" not in text  # zero-count bucket omitted
+
+
+def test_format_digest_no_footer_without_drops():
+    assert "Filtered today" not in format_digest(_result())
+
+
 def test_run_job_discover_sends_digest():
     notes = []
 

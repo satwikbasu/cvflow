@@ -51,3 +51,20 @@ def test_load_missing_file_returns_empty(tmp_path):
     have, syn = load_skill_profile(tmp_path / "nope.yaml")
     assert have == frozenset()
     assert syn == {}
+
+
+def test_real_candidate_skills_file_is_well_formed():
+    """Drift guard for profile/candidate_skills.yaml: the gate silently breaks if a synonym
+    points at a non-existent skill, or a skill isn't normalized. Catch that mechanically."""
+    from pathlib import Path
+
+    from cvflow.discovery.skills import normalize
+
+    have, syn = load_skill_profile(Path("profile/candidate_skills.yaml"))
+    assert have, "candidate_skills.yaml has no skills — the must-have gate would be disabled"
+    # every skill is already in normalized form (lowercase, single-spaced)
+    for s in have:
+        assert s == normalize(s), f"skill not normalized: {s!r}"
+    # every synonym resolves to a real skill (a dangling alias never matches anything)
+    for alias, canonical in syn.items():
+        assert canonical in have, f"synonym {alias!r} -> {canonical!r} not in skills"

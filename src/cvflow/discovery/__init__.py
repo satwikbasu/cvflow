@@ -33,6 +33,25 @@ __all__ = [
 
 logger = logging.getLogger("cvflow.discovery")
 
+# exclude_when crux field -> human bucket for the digest "filtered" footer.
+_EXCLUDE_BUCKET = {
+    "seniority_signal": "too senior",
+    "min_years_required": "over-experience",
+    "country": "abroad",
+    "night_shift_only": "night shift",
+    "app_maintenance_focus": "maintenance",
+    "red_flags": "red flag",
+}
+# Stable display order for the footer; only non-zero buckets are shown.
+DROP_BUCKET_ORDER = [
+    "too senior", "over-experience", "abroad", "wrong stack", "low pay",
+    "night shift", "maintenance", "red flag", "other filter", "already seen", "capped",
+]
+
+
+def _bump(drops: dict[str, int], bucket: str, n: int = 1) -> None:
+    drops[bucket] = drops.get(bucket, 0) + n
+
 
 @dataclass(frozen=True)
 class JobPosting:
@@ -286,23 +305,26 @@ class DiscoveryService:
                 self._sleep(self._throttle_seconds)
         return rows
 
-    def _prefilter(self, postings: list[JobPosting]) -> list[JobPosting]:
+    def _prefilter(self, postings: list[JobPosting], drops: dict[str, int]) -> list[JobPosting]:
         kept: list[JobPosting] = []
         for p in postings:
             title = p.title.lower()
             if any(k in title for k in self._exclude_title_keywords):
                 logger.info("prefilter drop (title) %s: %s", p.job_id, p.title)
+                _bump(drops, "other filter")
                 continue
             # Internships are a hard deal-breaker (full-time only). JobSpy's structured
             # job_type is reliable when present; an absent job_type is never dropped.
             if p.job_type and "intern" in p.job_type.lower():
                 logger.info("prefilter drop (internship) %s: %s", p.job_id, p.job_type)
+                _bump(drops, "other filter")
                 continue
             cap = p.max_amount if p.max_amount is not None else p.min_amount
             # only filter on salary when stated AND in INR (else keep + let ranker flag)
             if cap is not None and (p.currency or "INR").upper() == "INR":
                 if cap / 100_000 < self._min_ctc_lpa:
                     logger.info("prefilter drop (salary) %s: %s", p.job_id, cap)
+                    _bump(drops, "low pay")
                     continue
             # Naukri structured YOE gate (when experience_range is stated): drop only on a
             # parsed minimum above the ceiling — an unparseable/absent range is kept.
@@ -312,6 +334,7 @@ class DiscoveryService:
                     logger.info(
                         "prefilter drop (experience) %s: %s", p.job_id, p.experience_range
                     )
+                    _bump(drops, "over-experience")
                     continue
             kept.append(p)
         return kept
@@ -355,10 +378,16 @@ class DiscoveryService:
 
     def discover(self) -> dict[str, list[BenchmarkedJob]]:
         t0 = time.monotonic()
+        drops: dict[str, int] = {}
         rows = self._gather_rows()
         logger.info("stage scrape: %d raw rows in %.1fs", len(rows), time.monotonic() - t0)
-        postings = self._prefilter(normalize_rows(rows))
-        candidates = [p for p in postings if not self._already_seen(p.job_id)]
+        postings = self._prefilter(normalize_rows(rows), drops)
+        candidates: list[JobPosting] = []
+        for p in postings:
+            if self._already_seen(p.job_id):
+                _bump(drops, "already seen")
+            else:
+                candidates.append(p)
         logger.info(
             "stage prefilter+dedup: %d candidates (from %d postings)",
             len(candidates), len(postings),
@@ -371,6 +400,7 @@ class DiscoveryService:
         # already front-loads the earlier, higher-priority search terms.
         capped = candidates[: self._max_distill_per_cohort]
         if len(candidates) > self._max_distill_per_cohort:
+            _bump(drops, "capped", len(candidates) - self._max_distill_per_cohort)
             logger.info(
                 "distill cap: %d of %d candidates (raise max_distill_per_cohort for more)",
                 self._max_distill_per_cohort, len(candidates),
@@ -387,6 +417,8 @@ class DiscoveryService:
         for c in cruxes:
             excluded, reason = crux_excluded(c.model_dump(), self._exclude_when)
             if excluded:
+                field = reason.split()[0] if reason else ""
+                _bump(drops, _EXCLUDE_BUCKET.get(field, "other filter"))
                 logger.info("exclude_when drop %s: %s", c.job_id, reason)
                 continue
             # Deterministic must-have skill gate: drop jobs whose stated mandatory skills
@@ -398,10 +430,12 @@ class DiscoveryService:
                     max_missing_ratio=self._max_missing_skill_ratio,
                 )
                 if drop:
+                    _bump(drops, "wrong stack")
                     logger.info("must-have drop %s: missing %s", c.job_id, missing)
                     continue
             lpa = effective_lpa(by_id[c.job_id], c)
             if lpa is not None and lpa < self._min_ctc_lpa:
+                _bump(drops, "low pay")
                 logger.info("salary-floor drop %s: %.1f LPA < %d", c.job_id, lpa, self._min_ctc_lpa)
                 continue
             (m_cruxes if lpa is not None else n_cruxes).append(c)
@@ -413,13 +447,14 @@ class DiscoveryService:
             "M": self._rank_cohort("M", m_cruxes, by_id),
             "N": self._rank_cohort("N", n_cruxes, by_id),
         }
-        for cohort in result.values():
+        for cohort in (result["M"], result["N"]):
             for bj in cohort:
                 p = bj.posting
                 if not self._store.exists(p.job_id):
                     self._store.add(p.job_id, p.company, p.title, p.url)
         logger.info(
-            "discover total: %.1fs — presenting M=%d, N=%d",
-            time.monotonic() - t0, len(result["M"]), len(result["N"]),
+            "discover total: %.1fs — presenting M=%d, N=%d (filtered: %s)",
+            time.monotonic() - t0, len(result["M"]), len(result["N"]), drops,
         )
+        result["_dropped"] = drops  # type: ignore[assignment]  # footer-only metadata
         return result

@@ -201,16 +201,17 @@ def test_fit_scores_degrades_when_unsalvageable():
 
 def test_fit_view_includes_must_have_skills_in_prompt():
     import json
-    from cvflow.discovery.benchmark import fit_scores
+
+    from cvflow.discovery.benchmark import _FIT_PREAMBLE, fit_scores
     from cvflow.discovery.distill import Crux
     captured = {}
 
     class _Prov:
         def generate(self, prompt, **kw):
             captured["prompt"] = prompt
-            return json.dumps({"results": [{"job_id": "indeed:1", "fit_score": 40,
-                                            "fit_reason": "missing must-have",
-                                            "concern_codes": ["MISSING_MUST_HAVE"]}]})
+            return json.dumps({"results": [{"job_id": "indeed:1", "fit_score": 55,
+                                            "fit_reason": "adjacent stack",
+                                            "concern_codes": ["STACK_MISMATCH"]}]})
 
     crux = Crux(job_id="indeed:1", role_family="devops", seniority_signal="junior",
                 min_years_required=1, max_years_required=2, work_mode="remote",
@@ -219,6 +220,9 @@ def test_fit_view_includes_must_have_skills_in_prompt():
                 night_shift_only=False, app_maintenance_focus=False, company_type="product",
                 red_flags=[], applicant_instructions=None, one_line="x")
     out = fit_scores([crux], fingerprint="FP", prefer_roles={}, provider=_Prov())
+    # must_have_skills is still passed as context, but the prompt no longer asks the LLM to
+    # gate on it (the deterministic code gate owns that) and code passes concerns through.
     assert "must_have_skills" in captured["prompt"]
     assert "terraform" in captured["prompt"]
-    assert out["indeed:1"].concerns == ["MISSING_MUST_HAVE"]
+    assert "HARD GATE" not in _FIT_PREAMBLE  # the cap-at-40 directive is gone
+    assert out["indeed:1"].concerns == ["STACK_MISMATCH"]

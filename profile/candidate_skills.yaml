@@ -50,13 +50,18 @@ synonyms:
   golang: go
   restful apis: rest
   rest apis: rest
+  rest api: rest
   restful api: rest
   postgres: postgresql
   linux administration: linux
   apache kafka: kafka
   ci-cd: ci/cd
   cicd: ci/cd
+  ci/cd pipeline: ci/cd
+  ci/cd pipelines: ci/cd
   continuous integration: ci/cd
+  continuous delivery: ci/cd
+  continuous deployment: ci/cd
   shell scripting: bash
   shell: bash
   oci: oracle cloud

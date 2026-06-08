@@ -46,8 +46,21 @@ def format_digest(result: dict[str, Any]) -> str:
             idx += 1
     else:
         parts.append("No pay-not-stated jobs today.\n")
+    footer = _filtered_footer(result.get("_dropped"))
+    if footer:
+        parts.append(footer)
     parts.append("Reply: /apply 1 2 4  •  /skip 3  •  /apply all")
     return "\n".join(parts)
+
+
+def _filtered_footer(dropped: dict[str, int] | None) -> str:
+    """One line summarising what the gates removed today, so the digest isn't a black box."""
+    if not dropped:
+        return ""
+    from cvflow.discovery import DROP_BUCKET_ORDER
+
+    items = [f"{dropped[k]} {k}" for k in DROP_BUCKET_ORDER if dropped.get(k)]
+    return "🔍 Filtered today: " + " · ".join(items) if items else ""
 
 
 def run_job(
