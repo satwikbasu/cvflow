@@ -258,7 +258,6 @@ def build_tools(config: Any) -> CvflowTools:
         sites=config.discovery.sites,
         results_wanted_per_site=config.discovery.results_wanted_per_site,
         hours_old=config.discovery.hours_old,
-        top_n=config.discovery.top_n_to_present,
         exclude_title_keywords=config.preferences.exclude_title_keywords,
         min_ctc_lpa=config.preferences.min_ctc_lpa,
         country_indeed=config.discovery.country_indeed,

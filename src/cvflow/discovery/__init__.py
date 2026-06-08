@@ -182,7 +182,6 @@ class DiscoveryService:
         sites: list[str],
         results_wanted_per_site: int,
         hours_old: int,
-        top_n: int,
         throttle_seconds: float = 5.0,
         sleep: Callable[[float], None] = time.sleep,
         exclude_title_keywords: list[str] | None = None,
@@ -218,7 +217,6 @@ class DiscoveryService:
         self._jobspy_sites = [s for s in sites if s != "naukri"]
         self._results_wanted_per_site = results_wanted_per_site
         self._hours_old = hours_old
-        self._top_n = top_n
         self._throttle_seconds = throttle_seconds
         self._sleep = sleep
         self._exclude_title_keywords = [k.lower() for k in (exclude_title_keywords or [])]

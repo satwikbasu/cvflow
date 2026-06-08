@@ -41,7 +41,6 @@ class DiscoveryConfig:
     sites: list[str]
     results_wanted_per_site: int
     hours_old: int
-    top_n_to_present: int
     country_indeed: str
     linkedin_fetch_description: bool
     max_distill_per_cohort: int
@@ -53,11 +52,7 @@ class DiscoveryConfig:
 class PreferencesConfig:
     yoe_have: int
     min_ctc_lpa: int
-    job_type: str
     exclude_title_keywords: list[str]
-    prefer_product_companies: bool
-    exclude_app_maintenance: bool
-    exclude_night_shift_only: bool
     yoe_buffer: int
     top_ctc_lpa: int
     fit_weight: float
@@ -283,7 +278,6 @@ def load_config(path: str | Path) -> Config:
             sites=_get_str_list(disc, "sites", "discovery."),
             results_wanted_per_site=_get_int(disc, "results_wanted_per_site", "discovery."),
             hours_old=_get_int(disc, "hours_old", "discovery."),
-            top_n_to_present=_get_int(disc, "top_n_to_present", "discovery."),
             country_indeed=_get_str(disc, "country_indeed", "discovery."),
             linkedin_fetch_description=_get_bool(disc, "linkedin_fetch_description", "discovery."),
             max_distill_per_cohort=_get_int(disc, "max_distill_per_cohort", "discovery."),
@@ -293,11 +287,7 @@ def load_config(path: str | Path) -> Config:
         preferences=PreferencesConfig(
             yoe_have=_get_int(pref, "yoe_have", "preferences."),
             min_ctc_lpa=_get_int(pref, "min_ctc_lpa", "preferences."),
-            job_type=_get_str(pref, "job_type", "preferences."),
             exclude_title_keywords=_get_str_list(pref, "exclude_title_keywords", "preferences."),
-            prefer_product_companies=_get_bool(pref, "prefer_product_companies", "preferences."),
-            exclude_app_maintenance=_get_bool(pref, "exclude_app_maintenance", "preferences."),
-            exclude_night_shift_only=_get_bool(pref, "exclude_night_shift_only", "preferences."),
             yoe_buffer=_get_int(pref, "yoe_buffer", "preferences."),
             top_ctc_lpa=_get_int(pref, "top_ctc_lpa", "preferences."),
             fit_weight=_fit_w,

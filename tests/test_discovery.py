@@ -120,7 +120,7 @@ def _two_stage_service(store, search_fn, **over):
         store=store, search_fn=search_fn,
         search_terms=["go developer"], locations=["Remote", "India"],
         sites=["linkedin", "indeed"], results_wanted_per_site=10, hours_old=72,
-        top_n=5, throttle_seconds=1.0, sleep=lambda s: None,
+        throttle_seconds=1.0, sleep=lambda s: None,
         exclude_title_keywords=["senior", "lead"], min_ctc_lpa=7,
         distiller=_StubGemini(), brain=_StubNim(), fingerprint="FP",
         prefer_roles={"devops": 1.0}, exclude_when=[], fit_weight=0.70,
@@ -208,7 +208,7 @@ def test_discovery_passes_country_and_fetch_description_to_search_fn() -> None:
     svc = DiscoveryService(
         store=store, search_fn=search_fn,
         search_terms=["x"], locations=["Remote"], sites=["indeed"],
-        results_wanted_per_site=10, hours_old=72, top_n=5,
+        results_wanted_per_site=10, hours_old=72,
         throttle_seconds=0.0, sleep=lambda s: None,
         country_indeed="india", linkedin_fetch_description=True,
     )
@@ -248,7 +248,7 @@ def test_discover_two_stage_partitions_and_benchmarks():
     svc = DiscoveryService(
         store=store, search_fn=lambda **k: rows,
         search_terms=["x"], locations=["Remote"], sites=["linkedin"],
-        results_wanted_per_site=10, hours_old=72, top_n=5,
+        results_wanted_per_site=10, hours_old=72,
         throttle_seconds=0.0, sleep=lambda s: None,
         exclude_title_keywords=["senior"], min_ctc_lpa=7,
         distiller=_Gem(), brain=None, fingerprint="FP", prefer_roles={"devops": 1.0},
@@ -286,7 +286,7 @@ def test_discover_drops_jobs_via_exclude_when():
     svc = DiscoveryService(
         store=store, search_fn=lambda **k: rows,
         search_terms=["x"], locations=["Remote"], sites=["linkedin"],
-        results_wanted_per_site=10, hours_old=72, top_n=5, throttle_seconds=0.0,
+        results_wanted_per_site=10, hours_old=72, throttle_seconds=0.0,
         sleep=lambda s: None, distiller=_Gem(), brain=_Nim(), fingerprint="FP",
         prefer_roles={}, exclude_when=[{"field": "night_shift_only", "equals": True}],
         fit_weight=0.70, comp_weight=0.30, top_ctc_lpa=40, max_distill_per_cohort=60,

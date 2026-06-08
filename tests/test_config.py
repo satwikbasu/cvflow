@@ -26,7 +26,6 @@ VALID_YAML = textwrap.dedent(
       sites: ["linkedin", "indeed"]
       results_wanted_per_site: 25
       hours_old: 72
-      top_n_to_present: 8
       country_indeed: india
       linkedin_fetch_description: true
       max_distill_per_cohort: 60
@@ -35,11 +34,7 @@ VALID_YAML = textwrap.dedent(
     preferences:
       yoe_have: 1
       min_ctc_lpa: 7
-      job_type: "fulltime"
       exclude_title_keywords: ["senior", "lead"]
-      prefer_product_companies: true
-      exclude_app_maintenance: true
-      exclude_night_shift_only: true
       yoe_buffer: 2
       top_ctc_lpa: 40
       fit_weight: 0.7
@@ -104,7 +99,6 @@ def test_loads_valid_config(tmp_path: Path) -> None:
     assert isinstance(cfg, Config)
     assert cfg.telegram.authorized_user_id == 42
     assert cfg.schedule.timezone == "Asia/Kolkata"
-    assert cfg.discovery.top_n_to_present == 8
     assert cfg.llm.brain.model == "meta/llama-3.3-70b-instruct"
     assert cfg.llm.distillation.model == "mistral-small-2506"
     assert cfg.llm.tailoring.model == "gpt-oss-120b"
@@ -162,7 +156,6 @@ def test_preferences_block_parsed(tmp_path):
           sites: [indeed]
           results_wanted_per_site: 5
           hours_old: 72
-          top_n_to_present: 5
           country_indeed: india
           linkedin_fetch_description: true
           max_distill_per_cohort: 60
@@ -171,11 +164,7 @@ def test_preferences_block_parsed(tmp_path):
         preferences:
           yoe_have: 1
           min_ctc_lpa: 7
-          job_type: fulltime
           exclude_title_keywords: [senior, lead]
-          prefer_product_companies: true
-          exclude_app_maintenance: true
-          exclude_night_shift_only: true
           yoe_buffer: 2
           top_ctc_lpa: 40
           fit_weight: 0.7
@@ -230,11 +219,7 @@ def test_preferences_block_parsed(tmp_path):
     cfg = load_config(cfg_text)
     assert cfg.preferences.yoe_have == 1
     assert cfg.preferences.min_ctc_lpa == 7
-    assert cfg.preferences.job_type == "fulltime"
     assert cfg.preferences.exclude_title_keywords == ["senior", "lead"]
-    assert cfg.preferences.prefer_product_companies is True
-    assert cfg.preferences.exclude_app_maintenance is True
-    assert cfg.preferences.exclude_night_shift_only is True
 
 
 def test_phase14_preferences_and_discovery_fields(tmp_path):
