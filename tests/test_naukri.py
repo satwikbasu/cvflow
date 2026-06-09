@@ -46,7 +46,9 @@ def test_search_naukri_maps_rows_and_normalizes():
         calls["n"] += 1
         assert headers["nkparam"]  # token attached
         assert headers["appid"] == "109"
-        return _page(_job("111"), _job("222", sal="Not disclosed")) if params["pageNo"] == 1 else (200, {"jobDetails": []})
+        if params["pageNo"] == 1:
+            return _page(_job("111"), _job("222", sal="Not disclosed"))
+        return (200, {"jobDetails": []})
 
     rows = search_naukri(search_term="devops engineer", location="Remote",
                          results_wanted=20, hours_old=72,

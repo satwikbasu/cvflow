@@ -369,7 +369,7 @@ def test_discover_partitions_M_from_crux_salary_not_structured():
     store = ApplicationStore(":memory:")
     rows = [
         _row("1", title="DevOps Engineer", description="pays 18 LPA"),     # crux: 18 LPA/yr -> M
-        _row("2", title="DevOps Engineer", description="₹50k/month"),      # crux: 6 LPA -> below floor, drop
+        _row("2", title="DevOps Engineer", description="₹50k/month"),      # 6 LPA -> below floor
         _row("3", title="DevOps Engineer", description="no pay listed"),   # no salary -> N
     ]
 

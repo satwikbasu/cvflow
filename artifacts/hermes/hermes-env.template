@@ -193,10 +193,12 @@ TERMINAL_MODAL_IMAGE=
 # TERMINAL_CWD=
 
 # Default command timeout in seconds
-TERMINAL_TIMEOUT=
+# (leave COMMENTED, not present-but-empty: Hermes _parse_env_var() does int("") and
+#  crashes the gateway on a present-but-empty numeric var. Uncomment only to set a value.)
+# TERMINAL_TIMEOUT=
 
 # Cleanup inactive environments after this many seconds
-TERMINAL_LIFETIME_SECONDS=
+# TERMINAL_LIFETIME_SECONDS=
 
 # =
 # SSH REMOTE EXECUTION (for TERMINAL_ENV=
@@ -275,11 +277,12 @@ BROWSERBASE_ADVANCED_STEALTH=
 
 # Browser session timeout in seconds (default: 300)
 # Sessions are cleaned up after this duration of inactivity
-BROWSER_SESSION_TIMEOUT=
+# (COMMENTED on purpose — a present-but-empty numeric var crashes Hermes at startup.)
+# BROWSER_SESSION_TIMEOUT=
 
 # Browser inactivity timeout - auto-cleanup inactive sessions (default: 120 =
 # Browser sessions are automatically closed after this period of no activity
-BROWSER_INACTIVITY_TIMEOUT=
+# BROWSER_INACTIVITY_TIMEOUT=
 
 # Extra Chromium launch flags passed to agent-browser, comma- or newline-separated.
 # Hermes auto-injects "--no-sandbox,--disable-dev-shm-usage" when it detects root

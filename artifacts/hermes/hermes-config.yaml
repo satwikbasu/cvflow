@@ -22,7 +22,7 @@ agent:
   restart_drain_timeout: 180
   api_max_retries: 3
   service_tier: ''
-  tool_use_enforcement: auto
+  tool_use_enforcement: force  # NIM/llama needs native tool_calls; 'auto' leaks raw JSON tool calls to chat + double-calls
   task_completion_guidance: true
   environment_probe: true
   environment_hint: ''

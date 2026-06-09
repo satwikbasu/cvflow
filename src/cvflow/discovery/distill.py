@@ -111,7 +111,7 @@ class Distiller:
 
     def distill(self, posting: JobPosting) -> Crux:
         raw = self._provider.generate_structured(
-            self._build_prompt(posting), schema=Crux, seed=self._seed, max_output_tokens=512
+            self._build_prompt(posting), schema=Crux, seed=self._seed, max_output_tokens=1024
         )
         crux = Crux.model_validate_json(raw)
         # the model occasionally echoes a wrong job_id; pin it to the real one.
