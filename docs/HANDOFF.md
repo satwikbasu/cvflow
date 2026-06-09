@@ -1,129 +1,98 @@
-# cvflow — Session Handoff
+# cvflow — setup verification prompt
 
-Paste the prompt below into a fresh Claude Code session running **on the EC2 host** inside this repo
-(`/home/ubuntu/cvflow`). This handoff resumes **Phase 9 (Browser automation)** mid-execution.
+Paste the prompt below into a fresh **Claude Code** session running **on the new EC2 host**
+inside the cvflow repo. It makes Claude verify, read-only, that a freshly-provisioned
+instance is wired correctly — with special attention to the most common failure: the
+**Telegram bot replying from Hermes's own default brain instead of the NVIDIA NIM API**.
 
-## Before you start
-1. **Pull / verify HEAD.** Newest commit on `main` should be
-   `feat(storage): additive submission-proof columns + set_proof` (`b1dbf05`). Run `git log --oneline -8`.
-2. **Env:** `source .venv/bin/activate`. Sanity: `pytest -q` → **108 passing**; `ruff check .` and
-   `mypy --strict src` → clean.
-3. **Playwright browser:** Phase 9's browser tests need Chromium. Run `playwright install chromium`
-   (and on a headless box the system libs: `playwright install-deps chromium` if available). The browser
-   tests are written to **skip cleanly** if Chromium is absent, so the suite stays green either way — but
-   you must install it to actually *prove* the form-filling tasks.
-4. **Commits:** plain Conventional Commits, **NO `Co-Authored-By` trailer**. Commit straight to `main`
-   (single-operator deploy-by-clone repo — no feature branches). Global git identity only.
-5. **Spend limit note:** the previous session could not spawn implementer subagents (account hit a monthly
-   spend limit) and executed tasks **inline** instead. If your subagent dispatch also fails with a spend-limit
-   error, just execute inline — the plan is fully self-contained.
+Assumes everything up to (but **not** including) `docs/onboarding-new-candidate.md` is
+done: repo cloned, venv + deps installed, Playwright + TeX present, secrets filled into
+`config.yaml` (NVIDIA NIM key, Telegram bot token + user id), and the Hermes gateway
+installed per the README "Deploy / migrate" steps. The candidate-tuning step
+(`onboarding-new-candidate.md`) is **not** assumed done — the committed `profile/` is still
+the original author's data, which is fine for wiring verification.
 
 ---
 
-## Handoff prompt (paste this)
+```text
+You are verifying a freshly set-up instance of "cvflow" on this EC2 host. cvflow is an
+autonomous, self-hosted job-application agent operated entirely through Telegram. Its
+always-on substrate is the **Hermes Agent** (Nous Research), which provides the Telegram
+interface, scheduling, the browser runtime, and the **LLM brain**. cvflow supplies
+deterministic domain skills to Hermes over a local stdio **MCP server** (`-m cvflow.mcp`).
 
-> I'm continuing **cvflow**, an autonomous self-hosted job-application agent, running ON its EC2 host at
-> `/home/ubuntu/cvflow`. Read `CLAUDE.md` and `docs/superpowers/plans/2026-06-03-cvflow-build-plan.md` IN FULL
-> first — they are the source of truth (architecture, invariants, phase roadmap). Honor the memory files under
-> `~/.claude/projects/-home-ubuntu-cvflow/memory/` (especially `approval-gate-wiring`, `hermes-runtime-ops`,
-> `essay-auto-answer-policy`, `resume-tailoring-rules`).
->
-> **State:** Phases 0–8 done & pushed. **Phase 9 is IN PROGRESS.** HEAD = `b1dbf05`. 108 tests pass; ruff +
-> mypy --strict clean.
->
-> **THE APPROVAL GATE (locked, never weaken):** the ONLY producer of status `approved` is a human Telegram
-> `/apply <job_id>` slash command, routed by a Hermes hook OUTSIDE the agent loop. The MCP surface exposes NO
-> `approve` tool. `submit`/automation entrypoints assert `guard_can_submit` and raise `SubmissionBlocked`
-> otherwise. See the `approval-gate-wiring` memory.
->
-> **What I am building (Phase 9) and the design behind it — READ THESE TWO FIRST:**
-> - Design spec: `docs/superpowers/specs/2026-06-04-phase-9-browser-automation-design.md`
-> - TDD sub-plan (10 bite-sized tasks, full code in every step):
->   `docs/superpowers/plans/2026-06-04-phase-9-browser-automation.md`
->
-> **Already completed this session (Tasks 1–3 of the sub-plan, committed):**
-> - **Task 1 (`53c3b41`)** — `NimProvider` in `src/cvflow/llm/__init__.py`: OpenAI-compatible
->   `/chat/completions` client built from `config.llm.brain`, stdlib-urllib transport with an injectable
->   `post_fn` seam, per-minute budget guard `RpmExceeded` (mirrors `GeminiProvider`'s `RpdExceeded`). Exposes
->   `generate(prompt)->str`. Tests: `tests/test_llm_nim.py` (no network).
-> - **Task 2 (`e9c7757`)** — wired the previously-`None` `discovery` + `analyzer` in `build_tools`
->   (`src/cvflow/mcp/tools.py`): `NimProvider` → `LLMRanker`/`DiscoveryService` and `JDAnalyzer`. This closes
->   the long-standing live gap where `discover`/`analyze_jd` errored with `'NoneType' has no attribute ...`.
->   Verified `build_tools(load_config('config.yaml'))` constructs both (no network) and still has no `approve`
->   tool. Added a test asserting `discover()` returns a non-empty `url` for every job (user requirement: always
->   show job URLs).
-> - **Task 3 (`b1dbf05`)** — additive submission-proof columns on `ApplicationStore`
->   (`proof_url`, `proof_screenshot_path`, `proof_page_title`) + `set_proof(...)`. State-machine / gate core
->   untouched. Test in `tests/test_storage.py`.
->
-> **YOUR JOB: execute Tasks 4→10 of the sub-plan, in order, test-first.** The sub-plan contains the exact
-> failing test, the exact implementation, the run command + expected output, and the commit message for each
-> step — follow it verbatim unless reality contradicts it (if so, prefer the surrounding code's actual style,
-> as I did in Task 3 where the store uses `execute()+commit()`, not a `with self._conn:` block). After EACH
-> task: run `pytest -q && ruff check . && mypy --strict src` (all green), self-review against the spec and the
-> invariants, then commit. Keep the gate invariant true: NEVER add an `approve` tool/method;
-> `hasattr(tools, "approve")` must stay False.
->
-> **Remaining tasks (summary — full detail in the sub-plan):**
-> - **Task 4 — Local fixture form.** Create `tests/fixtures/form/page1.html` + `page2.html` (two-page form with
->   text, file, select, checkbox, textarea, a required field, a Next link, and a Submit button that sets a
->   confirmation # + page title). No test of its own — used by Tasks 6–7. Commit.
-> - **Task 5 — Pure deterministic-first field resolver.** Create `src/cvflow/automation/__init__.py` with
->   `FieldSpec`, `FieldFill`, `FieldResolution`, `NeedsClarification`, and `resolve_field(...)`. This is the
->   invariant-2 core (never guess): (1) `form_fields.json` exact/normalized lookup → literal value; (2)
->   `textarea` → grounded `essays.compose_answer`; (3) required+unresolved → clarify, optional+unresolved →
->   skip. Fully unit-tested with NO browser (`tests/test_automation_resolve.py`).
-> - **Task 6 — `SessionManager` + `FormFiller`.** Append to `automation/__init__.py`. `SessionManager` =
->   Option-C hybrid: `launch_persistent_context(user_data_dir=<storage_state_dir>/<job_id>)` (login/cookies
->   survive restarts) held in-process keyed by `job_id` (live page survives pause→resume). `FormFiller` reads
->   the form (`discover_fields`) and fills each type (`apply`). Real-Playwright tests in
->   `tests/test_automation_browser.py` that **skip if Chromium absent** (`pytest.importorskip` + try/except).
-> - **Task 7 — Proof capture.** Add `Proof` dataclass + `FormFiller.capture_proof(path)` (url / title /
->   screenshot / confirmation #). Browser test.
-> - **Task 8 — Gated `Automator` orchestration.** Append to `automation/__init__.py`. `fill(job_id)` asserts
->   `guard_can_submit` FIRST, opens the session, resolves+fills each field, **pauses** on a required unknown
->   (returns `needs_clarification`), discloses every `composed` answer to the user via the injected `notify`
->   BEFORE the final submit, submits, captures+persists proof, sets status `applied`. `resume(job_id, answer)`
->   continues on the same live page. **Any crash → status `failed` + `notify` naming the job and its URL**
->   (user requirements: disclose composed answers; alert with URL on crash). Tested with a FAKE page/filler
->   (no browser) in `tests/test_automation_orchestration.py` — verifies gate, pause/resume, disclosure,
->   crash-notify. (Verified legal transitions: `approved→applied` and `approved→failed` are both allowed.)
-> - **Task 9 — MCP `fill_application` / `resume_application`.** Add both to `TOOL_NAMES` and `CvflowTools`
->   (delegating to an injected `automator`); wire a real `Automator` (with `SessionManager`, `FormFiller`, and a
->   `_telegram_notify` that logs) in `build_tools`. STILL no `approve` tool. Test in `tests/test_mcp_tools.py`.
-> - **Task 10 — Full verification + build-plan sync.** `pytest -q && ruff check . && mypy --strict src` green;
->   with Chromium installed run `tests/test_automation_browser.py` and confirm the browser tests actually PASS
->   (not skip). Tick Phase 9 in the build plan and add a dated progress-log entry. Commit.
->
-> **Deviation already decided & approved by the user (do NOT revert):** we use our OWN deterministic Playwright
-> skill and **leave Hermes's native `browser`/`computer_use` toolsets DISABLED** (contrary to the original
-> Phase-9 task note) — so the agent loop can't drive a browser around the gate, and to spare NIM
-> context/latency. Do not re-enable them in `agent.disabled_toolsets`.
->
-> **Standing rules:** TDD; deterministic gate; never fabricate user facts (clarify, don't guess); never fail
-> silently (log + Telegram); respect free-tier limits; zero per-call/SaaS cost (no new paid deps — automation
-> uses Playwright which is already a dependency; `NimProvider` is stdlib-only); secrets never in git, profile
-> PII intentionally committed. Conventional Commits, NO `Co-Authored-By`. Commit straight to `main`.
->
-> **After Phase 9 is complete:** use `superpowers:finishing-a-development-branch`, then **update this
-> `docs/HANDOFF.md` and `git push`.** Next phases after 9 are: Phase 10 (Auth — Google OAuth + email-OTP),
-> Phase 11 (scheduling + systemd deploy), Phase 12 (end-to-end dry run).
+This is a READ-ONLY verification task. Do NOT modify code, do NOT edit config, do NOT
+commit, and NEVER print a full secret value (show only presence / a short prefix). At the
+end, give me a PASS/FAIL table and a clear verdict, plus the exact fix for any FAIL.
 
----
+## Critical background — where the brain is actually configured
+The brain the Telegram bot uses is configured in **Hermes**, NOT in cvflow:
+- `~/.hermes/config.yaml` → `model.default` must be `meta/llama-3.3-70b-instruct`,
+  `model.provider: nvidia`, `model.base_url: https://integrate.api.nvidia.com/v1`.
+- `~/.hermes/.env` → must contain a real **`NVIDIA_API_KEY`** (this is the key the brain
+  actually uses) and **`TELEGRAM_BOT_TOKEN`**.
+cvflow's own `config.yaml` `llm.brain` block is only a MIRROR for reference — the bot does
+NOT read its API key from there. The #1 reason a cvflow bot "replies on its own / not via
+NIM" is that the NVIDIA key was put into cvflow's `config.yaml` but is MISSING, blank, a
+placeholder, or INVALID in `~/.hermes/.env` (or `model.default` isn't the NIM model), so
+Hermes errors out or falls back to a different brain. Find out which.
 
-## Quick orientation for the new session
-- **What/why/architecture + invariants:** `CLAUDE.md`
-- **Roadmap + locked decisions + progress log:** `docs/superpowers/plans/2026-06-03-cvflow-build-plan.md`
-- **Phase 9 design + sub-plan (READ BOTH):**
-  `docs/superpowers/specs/2026-06-04-phase-9-browser-automation-design.md` and
-  `docs/superpowers/plans/2026-06-04-phase-9-browser-automation.md`
-- **Memory files** (`~/.claude/projects/-home-ubuntu-cvflow/memory/`): `approval-gate-wiring` (the gate +
-  the now-CLOSED discovery/analyzer gap), `hermes-runtime-ops` (gateway/MCP/systemd, NIM latency,
-  disabled_toolsets — note the Phase-9 deviation above), `essay-auto-answer-policy`, `resume-tailoring-rules`,
-  `salary-hike-filter`, `pii-free-tier-consent`, `git-use-global-identity`.
-- **PII privacy:** RESOLVED — burner-data consent; do NOT re-flag free-tier LLM PII egress as a blocker.
-- **Gate self-check before you commit anything in Phase 9:** there is no `approve` tool; every automation
-  entrypoint calls `guard_can_submit` first; crash paths notify with the job URL and set status `failed`.
+## Run these checks (adapt paths if the repo isn't at ~/cvflow or Hermes isn't at ~/.hermes)
 
-> **Note:** Claude's file-based memory is per-machine. This `HANDOFF.md`, the build plan, the Phase-9
-> design/sub-plan, and git history are the durable record — keep decisions there.
+1. Repo + test suite health
+   - `cd ~/cvflow && source .venv/bin/activate`
+   - `git log --oneline -3` and `git status` (expect a clean, recent checkout)
+   - `pytest -q`  →  all pass
+   - `ruff check .`  and  `mypy --strict src`  →  clean
+   - `python -c "from cvflow.config import load_config; c=load_config('config.yaml'); print('brain_model', c.llm.brain.model); print('tg_id_set', c.telegram.authorized_user_id!=0); print('tg_token_set', bool(c.telegram.bot_token)); print('nim_key_prefix', (c.llm.brain.api_key or '')[:6])"`
+     (cvflow config loads; brain model is the NIM model; telegram id/token set; NIM key
+     starts with `nvapi-`. Note: this only proves cvflow's MIRROR, not the live brain.)
+
+2. Hermes brain wiring — the decisive part
+   - Inspect `~/.hermes/config.yaml`: confirm `model.default: meta/llama-3.3-70b-instruct`,
+     `provider: nvidia`, the NIM `base_url`, and that `mcp_servers.cvflow` exists (command =
+     the repo venv python, args `["-m","cvflow.mcp"]`).
+   - Inspect `~/.hermes/.env` WITHOUT printing secrets, e.g.:
+     `grep -E '^(NVIDIA_API_KEY|TELEGRAM_BOT_TOKEN)=' ~/.hermes/.env | sed -E 's/=(.{0,6}).*/=\1…/'`
+     Confirm `NVIDIA_API_KEY` is present, non-empty, not a placeholder, and starts `nvapi-`;
+     `TELEGRAM_BOT_TOKEN` is present. If `NVIDIA_API_KEY` is absent/blank here, that is the bug.
+
+3. Prove the NIM key actually works (smoking-gun test)
+   - Source the key from Hermes's env and call NIM directly:
+     `set -a; . ~/.hermes/.env; set +a; curl -s -o /dev/null -w "%{http_code}\n" https://integrate.api.nvidia.com/v1/chat/completions -H "Authorization: Bearer $NVIDIA_API_KEY" -H "content-type: application/json" -d '{"model":"meta/llama-3.3-70b-instruct","messages":[{"role":"user","content":"ping"}],"max_tokens":5}'`
+   - `200` = key valid and NIM reachable (the brain CAN use NIM). `401`/`403` = invalid/expired
+     key = the bot cannot use NIM and will fail or fall back. Report the exact code.
+
+4. Gateway + MCP registration
+   - `systemctl is-active hermes-gateway` → `active`
+   - Discover the Hermes CLI (`hermes --help`, `hermes mcp --help`) and run its MCP test for
+     the cvflow server (e.g. `hermes mcp test cvflow`). Expect **12 tools** — ping, discover,
+     analyze_jd, list_applications, get_application, request_review, submit, compose_essay,
+     status_report, fill_application, resume_application, submit_otp — and **NO `approve`
+     tool** (the approval gate is human-only; an `approve` tool would be a critical defect).
+   - Confirm `agent.disabled_toolsets` keeps `browser`/`computer_use` etc. as configured.
+
+5. Live brain-path proof (the user's actual concern)
+   - `journalctl -u hermes-gateway -n 40 --no-pager` to see current state.
+   - Ask me to send one message to the Telegram bot from the authorized account; then
+     `journalctl -u hermes-gateway --since "2 min ago" --no-pager` and look for an outbound
+     call to `integrate.api.nvidia.com` / the NIM model name, and the absence of auth errors,
+     provider-fallback messages, or "no model configured" warnings. Also have me confirm the
+     bot's reply arrived. (As a built-in liveness check, from the authorized chat the message
+     `mcp_cvflow_ping` should return `{"status":"ok","service":"cvflow"}` — proving the MCP
+     path, distinct from the brain path.)
+
+6. Candidate-tuning status (expected NOT done yet)
+   - The committed `profile/` is still the original author's data. This is EXPECTED at this
+     stage — wiring verification does not require the new candidate's profile. Do NOT flag the
+     author's PII as an error. Just note that `docs/onboarding-new-candidate.md` is the next
+     step to personalize the profile/skills/config before relying on the digest.
+
+## Report
+Produce a PASS/FAIL table for checks 1–5, then a one-line verdict answering: **"Is the
+Telegram bot genuinely routing through the NVIDIA NIM API?"** If NO, name the precise cause
+(most likely: `NVIDIA_API_KEY` missing/invalid in `~/.hermes/.env`, or `model.default` not
+the NIM model) and the exact fix — typically: put the real key into `~/.hermes/.env`
+(`chmod 600`), ensure `model.default`/`provider`/`base_url` are the NIM values, then
+`sudo systemctl restart hermes-gateway` and re-run check 3 and check 5.
+```
