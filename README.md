@@ -60,7 +60,11 @@ tracked under **[`artifacts/`](artifacts/README.md)**. Real secrets never enter 
    ```bash
    git clone git@github.com:satwikbasu/cvflow.git && cd cvflow
    python3 -m venv .venv && source .venv/bin/activate
-   pip install -e .                      # makes `cvflow` importable for the MCP subprocess
+   pip install -e .                      # runtime deps (incl. pycryptodome for Naukri) +
+                                         # makes `cvflow` importable for the MCP subprocess
+   # To run the test suite / the docs/HANDOFF.md verification prompt on the box, instead use:
+   #   pip install -e ".[dev]"           # adds pytest + ruff + mypy
+   playwright install chromium           # browser automation (Phase 9)
    cp config.example.yaml config.yaml    # fill in real secrets (gitignored)
    # add the Fernet key referenced by security.fernet_key_path
    ```
@@ -69,17 +73,34 @@ tracked under **[`artifacts/`](artifacts/README.md)**. Real secrets never enter 
 4. **Restore the Hermes runtime** from the tracked artifacts:
    ```bash
    cp artifacts/hermes/hermes-config.yaml ~/.hermes/config.yaml
-   cp artifacts/hermes/hermes-env.template ~/.hermes/.env   # fill EVERY value:
-   #   NVIDIA_API_KEY, TELEGRAM_BOT_TOKEN, Gemini/Google key, …
+   cp artifacts/hermes/hermes-env.template ~/.hermes/.env   # fill the secrets you use:
+   #   NVIDIA_API_KEY (the brain — this is the key that matters, NOT cvflow's config.yaml),
+   #   TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USERS, Gemini/Google key, …
    chmod 600 ~/.hermes/.env
    # adjust absolute paths in hermes-config.yaml if the repo isn't at /home/ubuntu/cvflow
    ```
+   **Two `.env` / config gotchas that silently break a fresh box:**
+   - **Never leave a numeric var present-but-empty** (e.g. `TERMINAL_TIMEOUT=`,
+     `BROWSER_SESSION_TIMEOUT=`). Hermes does `int("")` on them and the gateway crashes at
+     startup. Either give a value or **comment the line out** (the shipped template already
+     comments the known numeric ones — keep them that way).
+   - `agent.tool_use_enforcement: **force**` in `hermes-config.yaml` is required for the
+     NIM/llama brain to use native tool-calls. With `auto`, the bot leaks raw
+     `{"name":…}` tool-call JSON into the chat and double-calls tools. (Shipped as `force`.)
 5. **Install the gateway service:**
    ```bash
    sudo cp artifacts/hermes/hermes-gateway.service /etc/systemd/system/
    sudo systemctl daemon-reload && sudo systemctl enable --now hermes-gateway
    ```
-6. **Verify:** `hermes mcp test cvflow` → 12 tools (no `approve`); from the authorized Telegram chat send `mcp_cvflow_ping` → `{"status":"ok","service":"cvflow"}`.
+6. **Verify the wiring.** Paste the prompt in **[`docs/HANDOFF.md`](docs/HANDOFF.md)** into a
+   Claude Code session on the box — it checks the brain is actually routing through NVIDIA NIM
+   (the #1 fresh-box failure), the gateway/MCP registration (12 tools, no `approve`), and the
+   suite. Quick manual check: `hermes mcp test cvflow` → 12 tools; from the authorized Telegram
+   chat send `mcp_cvflow_ping` → `{"status":"ok","service":"cvflow"}`.
+7. **Personalize to your own profile** (optional, when ready): follow
+   **[`docs/onboarding-new-candidate.md`](docs/onboarding-new-candidate.md)** to regenerate the
+   `profile/` knowledge base, `candidate_skills.yaml`, the résumé, and the `config.yaml`
+   discovery/preferences blocks for a new candidate.
 
 Full detail and the list of what's deliberately *not* tracked is in [`artifacts/README.md`](artifacts/README.md).
 
