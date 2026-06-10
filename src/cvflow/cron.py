@@ -7,6 +7,7 @@ replies to select/approve. Jobs: discover (digest), sweep-otp, heartbeat.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from cvflow.statemachine import Status
@@ -116,13 +117,36 @@ def run_job(
     job: str, *, store: Any, discovery: Any, otp: Any, notify: Any,
     learn_provider: Any = None, min_decisions: int = 5,
     learning_dir: str = "data/learning",
+    progress: Callable[[str], None] | None = None,
+    report_drops: bool = False,
+    lock: Any = None,
 ) -> None:
-    """Dispatch one scheduled job. Pure of config/network — deps are injected."""
+    """Dispatch one scheduled job. Pure of config/network — deps are injected.
+
+    For ``discover``: a single-run lock (default real ``discovery_lock``) prevents the
+    daily cron and a manual ``/discover`` double-running. ``progress`` streams per-stage
+    messages (manual only); ``report_drops`` posts the grouped drop report after the digest.
+    """
     if job == "discover":
-        result = discovery.discover()
-        ordered = [bj.posting.job_id for bj in result.get("M", []) + result.get("N", [])]
-        store.set_digest_slots(ordered)
-        notify(format_digest(result))
+        from cvflow.runlock import AlreadyRunning, discovery_lock
+
+        cm = lock if lock is not None else discovery_lock()
+        acquired = False
+        try:
+            with cm:
+                acquired = True  # past lock acquisition — any AlreadyRunning now is a real bug
+                result = discovery.discover(progress=progress or (lambda _m: None))
+                ordered = [bj.posting.job_id for bj in result.get("M", []) + result.get("N", [])]
+                store.set_digest_slots(ordered)
+                notify(format_digest(result))
+                if report_drops:
+                    for chunk in format_drop_report(result.get("_drop_records", [])):
+                        notify(chunk)
+        except AlreadyRunning:
+            if acquired:
+                raise  # came from inside the run, not lock contention — never swallow it
+            notify("⏳ A discovery run is already in progress — the digest is on its way")
+        return
     elif job == "sweep-otp":
         otp.expire_overdue()
     elif job == "heartbeat":
@@ -233,8 +257,12 @@ def main(
     import sys
 
     args = list(argv) if argv is not None else sys.argv[1:]
-    if len(args) != 1:
-        raise SystemExit("usage: python -m cvflow.cron <discover|sweep-otp|heartbeat|learn>")
+    if not args or len(args) > 2:
+        raise SystemExit(
+            "usage: python -m cvflow.cron <discover [--progress]|sweep-otp|heartbeat|learn>"
+        )
+    job = args[0]
+    manual = job == "discover" and "--progress" in args[1:]
     if services is None:
         import logging
 
@@ -251,11 +279,13 @@ def main(
     store, discovery, otp, notify, brain = services
     try:
         run_job(
-            args[0], store=store, discovery=discovery, otp=otp, notify=notify,
+            job, store=store, discovery=discovery, otp=otp, notify=notify,
             learn_provider=brain,
+            progress=notify if manual else None,
+            report_drops=manual,
         )
     except Exception as exc:  # noqa: BLE001 — a cron crash must still reach the user
-        notify(f"⚠️ cvflow cron job {args[0]!r} failed: {exc}")
+        notify(f"⚠️ cvflow cron job {job!r} failed: {exc}")
         raise
 
 

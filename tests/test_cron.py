@@ -52,7 +52,7 @@ def test_run_job_discover_sends_digest():
     notes = []
 
     class _Disc:
-        def discover(self):
+        def discover(self, progress=lambda _m: None):
             return _result()
 
     run_job("discover", store=ApplicationStore(":memory:"), discovery=_Disc(),
@@ -106,7 +106,7 @@ def test_main_notifies_on_job_failure():
     notes = []
 
     class _Disc:
-        def discover(self):
+        def discover(self, progress=lambda _m: None):
             raise RuntimeError("boom")
 
     from cvflow.cron import main
@@ -143,7 +143,7 @@ def test_run_job_discover_sets_slots_in_combined_order():
                               concerns=[], cohort=cohort)
 
     class _Disc:
-        def discover(self):
+        def discover(self, progress=lambda _m: None):
             return {"M": [_bj2("indeed:1", "M")], "N": [_bj2("indeed:2", "N")]}
 
     run_job("discover", store=store, discovery=_Disc(), otp=None, notify=lambda m: None)
@@ -185,3 +185,81 @@ def test_format_digest_empty_section_shows_one_liner():
     assert "With stated pay" in text
     assert "No stated-pay jobs today." in text
     assert "Pay not stated" in text
+
+
+def test_run_job_discover_with_progress_streams_and_reports_drops() -> None:
+    from cvflow.cron import run_job
+    from cvflow.discovery import DropRecord
+    notes: list[str] = []
+
+    class _Disc:
+        def discover(self, progress=lambda _m: None):
+            progress("📡 Scraped 5 raw postings in 1s")
+            r = _result()
+            r["_drop_records"] = [DropRecord("wrong stack", "X @ Y", "missing react")]
+            return r
+
+    run_job("discover", store=ApplicationStore(":memory:"), discovery=_Disc(),
+            otp=None, notify=notes.append, progress=notes.append, report_drops=True)
+    assert any("📡 Scraped" in n for n in notes)
+    assert any("https://jobs/indeed:7" in n for n in notes)   # digest
+    assert any("wrong stack" in n for n in notes)             # drop report
+
+
+def test_run_job_discover_plain_sends_neither_progress_nor_drops() -> None:
+    from cvflow.cron import run_job
+    from cvflow.discovery import DropRecord
+    notes: list[str] = []
+
+    class _Disc:
+        def discover(self, progress=lambda _m: None):
+            progress("📡 should-not-be-sent")
+            r = _result()
+            r["_drop_records"] = [DropRecord("wrong stack", "X @ Y", "missing react")]
+            return r
+
+    run_job("discover", store=ApplicationStore(":memory:"), discovery=_Disc(),
+            otp=None, notify=notes.append)
+    assert not any("should-not-be-sent" in n for n in notes)
+    assert not any("wrong stack" in n for n in notes)
+    assert any("https://jobs/indeed:7" in n for n in notes)   # digest still sent
+
+
+def test_run_job_discover_bails_when_lock_held() -> None:
+    from contextlib import contextmanager
+
+    from cvflow.cron import run_job
+    from cvflow.runlock import AlreadyRunning
+
+    @contextmanager
+    def _held_lock():
+        raise AlreadyRunning("held")
+        yield  # pragma: no cover
+
+    notes: list[str] = []
+
+    class _Disc:
+        def discover(self, progress=lambda _m: None):
+            raise AssertionError("discover must not run when lock is held")
+
+    run_job("discover", store=ApplicationStore(":memory:"), discovery=_Disc(),
+            otp=None, notify=notes.append, lock=_held_lock())
+    assert any("already in progress" in n for n in notes)
+
+
+def test_main_discover_progress_flag_wires_progress_and_drop_report() -> None:
+    from cvflow.cron import main
+    from cvflow.discovery import DropRecord
+    notes: list[str] = []
+
+    class _Disc:
+        def discover(self, progress=lambda _m: None):
+            progress("📡 Scraped 3 raw postings in 1s")
+            r = {"M": [], "N": []}
+            r["_drop_records"] = [DropRecord("wrong stack", "X @ Y", "missing react")]
+            return r
+
+    main(["discover", "--progress"],
+         services=(ApplicationStore(":memory:"), _Disc(), None, notes.append, None))
+    assert any("📡 Scraped" in n for n in notes)
+    assert any("wrong stack" in n for n in notes)
