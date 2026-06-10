@@ -187,10 +187,14 @@ def test_format_digest_empty_section_shows_one_liner():
     assert "Pay not stated" in text
 
 
-def test_run_job_discover_with_progress_streams_and_reports_drops() -> None:
+def test_run_job_discover_with_progress_streams_and_reports_drops(tmp_path) -> None:
     from cvflow.cron import run_job
     from cvflow.discovery import DropRecord
     notes: list[str] = []
+
+    class _FakeProv:
+        def generate(self, prompt: str, **kw: object) -> str:
+            return "Filtered some senior roles."
 
     class _Disc:
         def discover(self, progress=lambda _m: None):
@@ -200,10 +204,14 @@ def test_run_job_discover_with_progress_streams_and_reports_drops() -> None:
             return r
 
     run_job("discover", store=ApplicationStore(":memory:"), discovery=_Disc(),
-            otp=None, notify=notes.append, progress=notes.append, report_drops=True)
+            otp=None, notify=notes.append, progress=notes.append, report_drops=True,
+            summary_provider=_FakeProv(), log_dir=str(tmp_path))
     assert any("📡 Scraped" in n for n in notes)
-    assert any("https://jobs/indeed:7" in n for n in notes)   # digest
-    assert any("wrong stack" in n for n in notes)             # drop report
+    assert any("https://jobs/indeed:7" in n for n in notes)         # digest unchanged
+    assert any("Filtered some senior roles." in n for n in notes)   # LLM summary
+    assert any("Full breakdown:" in n for n in notes)               # log pointer
+    assert not any(n.startswith("🚫 Dropped") for n in notes)       # raw chunks gone
+    assert any(tmp_path.iterdir())                                   # log file written
 
 
 def test_run_job_discover_plain_sends_neither_progress_nor_drops() -> None:
@@ -255,11 +263,85 @@ def test_main_discover_progress_flag_wires_progress_and_drop_report() -> None:
     class _Disc:
         def discover(self, progress=lambda _m: None):
             progress("📡 Scraped 3 raw postings in 1s")
-            r = {"M": [], "N": []}
+            r: dict = {"M": [], "N": []}
             r["_drop_records"] = [DropRecord("wrong stack", "X @ Y", "missing react")]
+            r["_dropped"] = {"wrong stack": 1}
             return r
 
+    # Injected services path: summary_provider=None → fallback to _filtered_footer
     main(["discover", "--progress"],
          services=(ApplicationStore(":memory:"), _Disc(), None, notes.append, None))
     assert any("📡 Scraped" in n for n in notes)
+    # footer text (from _filtered_footer) should appear, NOT a raw "🚫 Dropped" chunk header
     assert any("wrong stack" in n for n in notes)
+    assert not any(n.startswith("🚫 Dropped") for n in notes)
+
+
+def test_run_job_discover_summary_provider_raises_sends_footer_fallback(tmp_path) -> None:
+    """LLM failure → deterministic footer fallback + log pointer; never raw chunks, never silent."""
+    from cvflow.cron import run_job
+    from cvflow.discovery import DropRecord
+    from cvflow.llm import RpmExceeded
+    notes: list[str] = []
+
+    class _FailProv:
+        def generate(self, prompt: str, **kw: object) -> str:
+            raise RpmExceeded("rate limited")
+
+    class _Disc:
+        def discover(self, progress=lambda _m: None):
+            r = _result()
+            r["_drop_records"] = [DropRecord("wrong stack", "X @ Y", "missing react")]
+            r["_dropped"] = {"wrong stack": 1}
+            return r
+
+    run_job("discover", store=ApplicationStore(":memory:"), discovery=_Disc(),
+            otp=None, notify=notes.append, report_drops=True,
+            summary_provider=_FailProv(), log_dir=str(tmp_path))
+    # digest sent
+    assert any("https://jobs/indeed:7" in n for n in notes)
+    # fallback footer (not raw chunks)
+    assert not any(n.startswith("🚫 Dropped") for n in notes)
+    assert any("wrong stack" in n for n in notes)       # footer mentions bucket
+    # log file still written (retention before LLM call)
+    assert any(tmp_path.iterdir())
+    # log pointer appended
+    assert any("Full breakdown:" in n for n in notes)
+
+
+def test_run_job_discover_daily_no_drop_msg_but_log_written(tmp_path) -> None:
+    """Daily run (report_drops=False): digest sent, no drop message, log file still written."""
+    from cvflow.cron import run_job
+    from cvflow.discovery import DropRecord
+    notes: list[str] = []
+
+    class _Disc:
+        def discover(self, progress=lambda _m: None):
+            r = _result()
+            r["_drop_records"] = [DropRecord("wrong stack", "X @ Y", "missing react")]
+            return r
+
+    run_job("discover", store=ApplicationStore(":memory:"), discovery=_Disc(),
+            otp=None, notify=notes.append, report_drops=False, log_dir=str(tmp_path))
+    assert any("https://jobs/indeed:7" in n for n in notes)      # digest sent
+    assert not any("wrong stack" in n for n in notes)             # no drop message
+    assert not any("Full breakdown:" in n for n in notes)         # no pointer in chat
+    assert any(tmp_path.iterdir())                                # log written to disk
+
+
+def test_run_job_discover_digest_text_identical_to_format_digest(tmp_path) -> None:
+    """Digest text in the notification is byte-identical to format_digest(result)."""
+    from cvflow.cron import format_digest, run_job
+    from cvflow.discovery import DropRecord
+    notes: list[str] = []
+
+    class _Disc:
+        def discover(self, progress=lambda _m: None):
+            r = _result()
+            r["_drop_records"] = [DropRecord("wrong stack", "X @ Y", "missing react")]
+            return r
+
+    run_job("discover", store=ApplicationStore(":memory:"), discovery=_Disc(),
+            otp=None, notify=notes.append, report_drops=True, log_dir=str(tmp_path))
+    expected = format_digest(_result())
+    assert any(n == expected for n in notes)

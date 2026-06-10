@@ -120,6 +120,10 @@ def run_job(
     progress: Callable[[str], None] | None = None,
     report_drops: bool = False,
     lock: Any = None,
+    summary_provider: Any = None,
+    log_dir: str | None = None,
+    summary_max_chars: int = 700,
+    summary_samples: int = 3,
 ) -> None:
     """Dispatch one scheduled job. Pure of config/network — deps are injected.
 
@@ -135,13 +139,36 @@ def run_job(
         try:
             with cm:
                 acquired = True  # past lock acquisition — any AlreadyRunning now is a real bug
+                from cvflow.digest_summary import summarize_drops, write_discover_log
+
                 result = discovery.discover(progress=progress or (lambda _m: None))
                 ordered = [bj.posting.job_id for bj in result.get("M", []) + result.get("N", [])]
                 store.set_digest_slots(ordered)
-                notify(format_digest(result))
+                digest = format_digest(result)
+                log_path = None
+                if log_dir:
+                    chunks = format_drop_report(result.get("_drop_records", []))
+                    log_path = write_discover_log(digest, chunks, log_dir)
+                notify(digest)
                 if report_drops:
-                    for chunk in format_drop_report(result.get("_drop_records", [])):
-                        notify(chunk)
+                    summary = (
+                        summarize_drops(
+                            result.get("_drop_records", []),
+                            provider=summary_provider,
+                            max_chars=summary_max_chars,
+                            samples_per_bucket=summary_samples,
+                        )
+                        if summary_provider
+                        else None
+                    )
+                    msg = (
+                        summary
+                        or _filtered_footer(result.get("_dropped"))
+                        or "🚫 No jobs dropped."
+                    )
+                    if log_path is not None:
+                        msg += f"\n📄 Full breakdown: {log_path}"
+                    notify(msg)
         except AlreadyRunning:
             if acquired:
                 raise  # came from inside the run, not lock contention — never swallow it
@@ -183,6 +210,17 @@ def run_job(
         raise ValueError(f"unknown cron job: {job}")
 
 
+def _build_provider(cfg: Any) -> Any:
+    """Construct a NimProvider from a config LLM block."""
+    from cvflow.llm import NimProvider
+
+    return NimProvider(
+        base_url=cfg.base_url, api_key=cfg.api_key, model=cfg.model,
+        max_requests_per_minute=cfg.max_requests_per_minute,
+        seed_field="random_seed" if cfg.provider == "mistral" else "seed",
+    )
+
+
 def _build(config: Any) -> tuple[Any, Any, Any, Any, Any]:
     """Construct the minimal services for the cron jobs (NO browser/Automator)."""
     from pathlib import Path
@@ -192,7 +230,6 @@ def _build(config: Any) -> tuple[Any, Any, Any, Any, Any]:
     from cvflow.discovery.benchmark import build_fingerprint
     from cvflow.discovery.skills import load_skill_profile
     from cvflow.knowledge import KnowledgeBase
-    from cvflow.llm import NimProvider
     from cvflow.notify import HermesNotifier
     from cvflow.storage import ApplicationStore
 
@@ -201,15 +238,8 @@ def _build(config: Any) -> tuple[Any, Any, Any, Any, Any]:
         config.profile.knowledge_base_dir, config.storage.form_fields_path
     )
 
-    def _provider(cfg: Any) -> NimProvider:
-        return NimProvider(
-            base_url=cfg.base_url, api_key=cfg.api_key, model=cfg.model,
-            max_requests_per_minute=cfg.max_requests_per_minute,
-            seed_field="random_seed" if cfg.provider == "mistral" else "seed",
-        )
-
-    brain = _provider(config.llm.brain)
-    distiller = _provider(config.llm.distillation)  # Mistral mistral-small
+    brain = _build_provider(config.llm.brain)
+    distiller = _build_provider(config.llm.distillation)  # Mistral mistral-small
     fingerprint = build_fingerprint(
         prefs_text=knowledge.full_context(), prefer_roles=config.preferences.prefer_roles
     )
@@ -263,6 +293,11 @@ def main(
         )
     job = args[0]
     manual = job == "discover" and "--progress" in args[1:]
+    summary_provider: Any = None
+    log_dir: str | None = None
+    summary_max_chars = 700
+    summary_samples = 3
+    report_drops = manual
     if services is None:
         import logging
 
@@ -275,14 +310,25 @@ def main(
             format="%(asctime)s %(levelname)s %(name)s: %(message)s",
             datefmt="%H:%M:%S",
         )
-        services = _build(load_config("config.yaml"))
+        cfg = load_config("config.yaml")
+        services = _build(cfg)
+        block = getattr(cfg.llm, cfg.discovery.drop_summary_provider)
+        summary_provider = _build_provider(block)
+        log_dir = cfg.discovery.log_dir
+        summary_max_chars = cfg.discovery.drop_summary_max_chars
+        summary_samples = cfg.discovery.drop_summary_samples_per_bucket
+        report_drops = cfg.discovery.summarize_drops if manual else cfg.discovery.cron_sends_drops
     store, discovery, otp, notify, brain = services
     try:
         run_job(
             job, store=store, discovery=discovery, otp=otp, notify=notify,
             learn_provider=brain,
             progress=notify if manual else None,
-            report_drops=manual,
+            report_drops=report_drops,
+            summary_provider=summary_provider,
+            log_dir=log_dir,
+            summary_max_chars=summary_max_chars,
+            summary_samples=summary_samples,
         )
     except Exception as exc:  # noqa: BLE001 — a cron crash must still reach the user
         notify(f"⚠️ cvflow cron job {job!r} failed: {exc}")
