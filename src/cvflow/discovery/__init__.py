@@ -20,7 +20,7 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NamedTuple
 
 from cvflow.statemachine import Status
 
@@ -29,6 +29,7 @@ __all__ = [
     "BenchmarkedJob",
     "DiscoveryService",
     "normalize_rows",
+    "DropRecord",
 ]
 
 logger = logging.getLogger("cvflow.discovery")
@@ -51,6 +52,26 @@ DROP_BUCKET_ORDER = [
 
 def _bump(drops: dict[str, int], bucket: str, n: int = 1) -> None:
     drops[bucket] = drops.get(bucket, 0) + n
+
+
+class DropRecord(NamedTuple):
+    """One dropped job: ``bucket`` (a DROP_BUCKET_ORDER key), ``label`` ("<title> @ <company>"),
+    ``detail`` (the human reason, matching the log line)."""
+
+    bucket: str
+    label: str
+    detail: str
+
+
+def _label(p: JobPosting) -> str:
+    return f"{p.title or 'Untitled'} @ {p.company or 'Unknown company'}"
+
+
+def _drop(
+    drops: dict[str, int], records: list[DropRecord], bucket: str, p: JobPosting, detail: str
+) -> None:
+    _bump(drops, bucket)
+    records.append(DropRecord(bucket, _label(p), detail))
 
 
 @dataclass(frozen=True)
@@ -305,26 +326,29 @@ class DiscoveryService:
                 self._sleep(self._throttle_seconds)
         return rows
 
-    def _prefilter(self, postings: list[JobPosting], drops: dict[str, int]) -> list[JobPosting]:
+    def _prefilter(
+        self, postings: list[JobPosting], drops: dict[str, int], records: list[DropRecord]
+    ) -> list[JobPosting]:
         kept: list[JobPosting] = []
         for p in postings:
             title = p.title.lower()
             if any(k in title for k in self._exclude_title_keywords):
                 logger.info("prefilter drop (title) %s: %s", p.job_id, p.title)
-                _bump(drops, "other filter")
+                _drop(drops, records, "other filter", p, "excluded title keyword")
                 continue
             # Internships are a hard deal-breaker (full-time only). JobSpy's structured
             # job_type is reliable when present; an absent job_type is never dropped.
             if p.job_type and "intern" in p.job_type.lower():
                 logger.info("prefilter drop (internship) %s: %s", p.job_id, p.job_type)
-                _bump(drops, "other filter")
+                _drop(drops, records, "other filter", p, "internship")
                 continue
             cap = p.max_amount if p.max_amount is not None else p.min_amount
             # only filter on salary when stated AND in INR (else keep + let ranker flag)
             if cap is not None and (p.currency or "INR").upper() == "INR":
                 if cap / 100_000 < self._min_ctc_lpa:
                     logger.info("prefilter drop (salary) %s: %s", p.job_id, cap)
-                    _bump(drops, "low pay")
+                    _drop(drops, records, "low pay",
+                          p, f"{cap / 100_000:.1f} LPA < {self._min_ctc_lpa}")
                     continue
             # Naukri structured YOE gate (when experience_range is stated): drop only on a
             # parsed minimum above the ceiling — an unparseable/absent range is kept.
@@ -334,7 +358,8 @@ class DiscoveryService:
                     logger.info(
                         "prefilter drop (experience) %s: %s", p.job_id, p.experience_range
                     )
-                    _bump(drops, "over-experience")
+                    _drop(drops, records, "over-experience",
+                          p, f"{min_years}y > ceiling {self._yoe_ceiling}")
                     continue
             kept.append(p)
         return kept
@@ -376,21 +401,29 @@ class DiscoveryService:
             return app is not None and app.status != Status.DISCOVERED
         return True
 
-    def discover(self) -> dict[str, list[BenchmarkedJob]]:
+    def discover(
+        self, progress: Callable[[str], None] = lambda _msg: None
+    ) -> dict[str, list[BenchmarkedJob]]:
         t0 = time.monotonic()
         drops: dict[str, int] = {}
+        records: list[DropRecord] = []
         rows = self._gather_rows()
-        logger.info("stage scrape: %d raw rows in %.1fs", len(rows), time.monotonic() - t0)
-        postings = self._prefilter(normalize_rows(rows), drops)
+        scrape_secs = time.monotonic() - t0
+        logger.info("stage scrape: %d raw rows in %.1fs", len(rows), scrape_secs)
+        progress(f"📡 Scraped {len(rows)} raw postings in {scrape_secs:.0f}s")
+        postings = self._prefilter(normalize_rows(rows), drops, records)
         candidates: list[JobPosting] = []
         for p in postings:
             if self._already_seen(p.job_id):
-                _bump(drops, "already seen")
+                _drop(drops, records, "already seen", p, "already shown before")
             else:
                 candidates.append(p)
         logger.info(
             "stage prefilter+dedup: %d candidates (from %d postings)",
             len(candidates), len(postings),
+        )
+        progress(
+            f"🧹 {len(candidates)} candidates after prefilter + dedup (from {len(postings)})"
         )
         # Distill ONCE over the candidate pool, then partition — salary is usually only in
         # the JD text (JobSpy structured fields are empty), so the M/N split must use the
@@ -400,25 +433,36 @@ class DiscoveryService:
         # already front-loads the earlier, higher-priority search terms.
         capped = candidates[: self._max_distill_per_cohort]
         if len(candidates) > self._max_distill_per_cohort:
-            _bump(drops, "capped", len(candidates) - self._max_distill_per_cohort)
+            overflow = len(candidates) - self._max_distill_per_cohort
+            _bump(drops, "capped", overflow)
+            records.append(
+                DropRecord("capped", "(summary)",
+                           f"{overflow} jobs beyond the distill cap (not distilled this run)")
+            )
             logger.info(
                 "distill cap: %d of %d candidates (raise max_distill_per_cohort for more)",
                 self._max_distill_per_cohort, len(candidates),
             )
+            progress(f"✂️ Distill cap: {self._max_distill_per_cohort} of "
+                     f"{len(candidates)} candidates ({overflow} deferred)")
         by_id = {p.job_id: p for p in capped}
         distiller = Distiller(self._distiller_provider, seed=self._distill_seed)
         t = time.monotonic()
         cruxes = distill_all(capped, self._store, distiller)
+        distill_secs = time.monotonic() - t
         logger.info(
-            "stage distill: %d/%d jobs in %.1fs", len(cruxes), len(capped), time.monotonic() - t
+            "stage distill: %d/%d jobs in %.1fs", len(cruxes), len(capped), distill_secs
         )
+        progress(f"🧪 Distilled {len(cruxes)}/{len(capped)} JDs in {distill_secs:.0f}s")
         m_cruxes: list[Crux] = []
         n_cruxes: list[Crux] = []
         for c in cruxes:
+            p = by_id[c.job_id]
             excluded, reason = crux_excluded(c.model_dump(), self._exclude_when)
             if excluded:
                 field = reason.split()[0] if reason else ""
-                _bump(drops, _EXCLUDE_BUCKET.get(field, "other filter"))
+                _drop(drops, records, _EXCLUDE_BUCKET.get(field, "other filter"),
+                      p, reason or "excluded by rule")
                 logger.info("exclude_when drop %s: %s", c.job_id, reason)
                 continue
             # Deterministic must-have skill gate: drop jobs whose stated mandatory skills
@@ -430,12 +474,12 @@ class DiscoveryService:
                     max_missing_ratio=self._max_missing_skill_ratio,
                 )
                 if drop:
-                    _bump(drops, "wrong stack")
+                    _drop(drops, records, "wrong stack", p, f"missing {', '.join(missing)}")
                     logger.info("must-have drop %s: missing %s", c.job_id, missing)
                     continue
             lpa = effective_lpa(by_id[c.job_id], c)
             if lpa is not None and lpa < self._min_ctc_lpa:
-                _bump(drops, "low pay")
+                _drop(drops, records, "low pay", p, f"{lpa:.1f} LPA < {self._min_ctc_lpa}")
                 logger.info("salary-floor drop %s: %.1f LPA < %d", c.job_id, lpa, self._min_ctc_lpa)
                 continue
             (m_cruxes if lpa is not None else n_cruxes).append(c)
@@ -443,6 +487,7 @@ class DiscoveryService:
             "cohorts after gate+partition: M (stated INR pay)=%d, N (no stated pay)=%d",
             len(m_cruxes), len(n_cruxes),
         )
+        progress(f"📊 Cohorts — 💰{len(m_cruxes)} stated-pay · 📋{len(n_cruxes)} no-pay")
         result = {
             "M": self._rank_cohort("M", m_cruxes, by_id),
             "N": self._rank_cohort("N", n_cruxes, by_id),
@@ -457,4 +502,5 @@ class DiscoveryService:
             time.monotonic() - t0, len(result["M"]), len(result["N"]), drops,
         )
         result["_dropped"] = drops  # type: ignore[assignment]  # footer-only metadata
+        result["_drop_records"] = records  # type: ignore[assignment]  # grouped drop report
         return result

@@ -555,3 +555,31 @@ def test_naukri_fetched_via_adapter_and_excluded_from_jobspy():
     assert "naukri:n1" in ids and "linkedin:j1" in ids   # both merged + ranked
     assert captured["naukri_called"] is True
     assert "naukri" not in captured["site_name"]          # JobSpy never asked for naukri
+
+
+def test_discover_emits_progress_messages_in_order():
+    store = ApplicationStore(":memory:")
+    rows = [_row("1"), _row("2", site="indeed")]
+    svc = _two_stage_service(store, lambda **k: rows)
+    msgs: list[str] = []
+    svc.discover(progress=msgs.append)
+    joined = "\n".join(msgs)
+    assert any(m.startswith("📡 Scraped") for m in msgs)
+    assert any("candidates after prefilter" in m for m in msgs)
+    assert any(m.startswith("🧪 Distilled") for m in msgs)
+    assert any(m.startswith("📊 Cohorts") for m in msgs)
+    assert joined.index("📡") < joined.index("🧹") < joined.index("🧪") < joined.index("📊")
+
+
+def test_discover_collects_drop_records_with_bucket_and_detail():
+    store = ApplicationStore(":memory:")
+    rows = [_row("1"), _row("2", title="Senior Engineer")]  # row 2 dropped at prefilter
+    svc = _two_stage_service(store, lambda **k: rows)
+    result = svc.discover()
+    records = result["_drop_records"]
+    rec = next(r for r in records if r.bucket == "other filter")
+    assert "@" in rec.label and rec.detail
+    from collections import Counter
+    by_bucket = Counter(r.bucket for r in records if r.bucket != "capped")
+    for bucket, n in by_bucket.items():
+        assert result["_dropped"][bucket] == n
