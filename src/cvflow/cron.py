@@ -63,6 +63,55 @@ def _filtered_footer(dropped: dict[str, int] | None) -> str:
     return "🔍 Filtered today: " + " · ".join(items) if items else ""
 
 
+_MAX_MSG = 4000  # Telegram's hard limit is 4096; leave headroom.
+
+
+def format_drop_report(records: list[Any]) -> list[str]:
+    """Group drop records by bucket (in DROP_BUCKET_ORDER) and chunk into <=4000-char
+    messages. A bucket that overflows one message repeats its header (cont.) so each
+    chunk keeps context. Empty input -> []."""
+    if not records:
+        return []
+    from cvflow.discovery import DROP_BUCKET_ORDER
+
+    grouped: dict[str, list[Any]] = {}
+    for r in records:
+        grouped.setdefault(r.bucket, []).append(r)
+
+    messages: list[str] = []
+    current: list[str] = []
+    length = 0
+
+    def flush() -> None:
+        nonlocal current, length
+        if current:
+            messages.append("\n".join(current))
+            current = []
+            length = 0
+
+    def add(line: str) -> None:
+        nonlocal length
+        if length + len(line) + 1 > _MAX_MSG:
+            flush()
+        current.append(line)
+        length += len(line) + 1
+
+    for bucket in DROP_BUCKET_ORDER:
+        recs = grouped.get(bucket)
+        if not recs:
+            continue
+        header = f"🚫 Dropped {len(recs)} — {bucket}"
+        add(header)
+        for r in recs:
+            line = f"• {r.label} — {r.detail}"
+            if length + len(line) + 1 > _MAX_MSG:
+                flush()
+                add(f"{header} (cont.)")
+            add(line)
+    flush()
+    return messages
+
+
 def run_job(
     job: str, *, store: Any, discovery: Any, otp: Any, notify: Any,
     learn_provider: Any = None, min_decisions: int = 5,
