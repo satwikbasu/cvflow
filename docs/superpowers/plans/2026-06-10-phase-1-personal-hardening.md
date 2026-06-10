@@ -113,7 +113,13 @@ whole schedule exists only in `~/.hermes/state.db`, so a fresh clone has no jobs
 - A fresh-clone deploy needs exactly: clone → venv → config → `scripts/install-hermes-cron.sh`
   (deploy.md updated to say so).
 
-### [ ] 1B — Digest summarization (chat gets a friendly summary; the log keeps everything)
+### [x] 1B — Digest summarization (chat gets a friendly summary; the log keeps everything)
+
+> **DONE 2026-06-10** (sub-plan `2026-06-10-p1b-digest-summary.md`). Refined from the original
+> design: the **digest is unchanged**; what gets LLM-summarized is the **drop report** (compressed
+> first, then Cerebras), and **only on manual `/discover`** — the daily cron stays digest-only. Full
+> digest + per-job drops always retained to `logs/discover/<ts>.md`. All knobs in `discovery.*`
+> config. Commits `a8ea8a5`/`fd1c407`/`899a51c`/`f1b381d`.
 
 **Files:**
 - Modify: `src/cvflow/cron.py` — `run_job("discover")` writes the log file and sends the summary;

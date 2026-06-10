@@ -149,4 +149,10 @@ drops summarized not dumped; log retained), CLAUDE.md if it references the drop 
 - Every new config key optional; live `config.yaml` loads unchanged. `pytest`/`ruff`/`mypy` green.
 
 ## Progress log
-- 2026-06-10 — sub-plan written. Nothing executed yet.
+- 2026-06-10 — sub-plan written.
+- 2026-06-10 — **SHIPPED** (subagent-driven, all 4 tasks reviewed). Commits: `a8ea8a5` (config keys),
+  `fd1c407` (digest_summary module), `899a51c` (cron wiring), `f1b381d` (docs). 275 tests green,
+  ruff + mypy --strict clean. Manual `/discover` now sends progress + the unchanged digest + ONE
+  Cerebras-summarized drop note + a `logs/discover/<ts>.md` pointer; daily cron is digest-only;
+  full digest+drops always retained on disk; LLM failure falls back to the deterministic footer.
+  All knobs in `discovery.*` config (optional-with-defaults; live config loads unchanged).
