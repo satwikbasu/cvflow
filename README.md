@@ -87,17 +87,30 @@ tracked under **[`artifacts/`](artifacts/README.md)**. Real secrets never enter 
    - `agent.tool_use_enforcement: **force**` in `hermes-config.yaml` is required for the
      NIM/llama brain to use native tool-calls. With `auto`, the bot leaks raw
      `{"name":…}` tool-call JSON into the chat and double-calls tools. (Shipped as `force`.)
-5. **Install the gateway service:**
+5. **Install the command hooks + plugins** (the deterministic slash commands that run *outside*
+   the brain: the `/apply`/`/skip` approval gate and the manual `/discover` trigger):
+   ```bash
+   cp -r artifacts/hermes/hooks/cvflow-gate       ~/.hermes/hooks/cvflow-gate
+   cp -r artifacts/hermes/plugins/cvflow-gate     ~/.hermes/plugins/cvflow-gate
+   cp -r artifacts/hermes/hooks/cvflow-discover   ~/.hermes/hooks/cvflow-discover
+   cp -r artifacts/hermes/plugins/cvflow-discover ~/.hermes/plugins/cvflow-discover
+   # ~/.hermes/config.yaml → plugins.enabled must list both cvflow-gate AND cvflow-discover
+   # (the shipped hermes-config.yaml already does). Hooks import cvflow from $CVFLOW_ROOT
+   # (default ~/cvflow) at runtime — set it in ~/.hermes/.env if the repo lives elsewhere.
+   ```
+   Detail + verification in [`docs/deploy.md`](docs/deploy.md) and [`artifacts/README.md`](artifacts/README.md).
+6. **Install the gateway service:**
    ```bash
    sudo cp artifacts/hermes/hermes-gateway.service /etc/systemd/system/
    sudo systemctl daemon-reload && sudo systemctl enable --now hermes-gateway
    ```
-6. **Verify the wiring.** Paste the prompt in **[`docs/HANDOFF.md`](docs/HANDOFF.md)** into a
+7. **Verify the wiring.** Paste the prompt in **[`docs/HANDOFF.md`](docs/HANDOFF.md)** into a
    Claude Code session on the box — it checks the brain is actually routing through NVIDIA NIM
    (the #1 fresh-box failure), the gateway/MCP registration (12 tools, no `approve`), and the
    suite. Quick manual check: `hermes mcp test cvflow` → 12 tools; from the authorized Telegram
-   chat send `mcp_cvflow_ping` → `{"status":"ok","service":"cvflow"}`.
-7. **Personalize to your own profile** (optional, when ready): follow
+   chat send `mcp_cvflow_ping` → `{"status":"ok","service":"cvflow"}`. Then `/discover` →
+   `🔎 Discovery started …` and `/apply <id>` on a pending-review job → `✅ Approved …`.
+8. **Personalize to your own profile** (optional, when ready): follow
    **[`docs/onboarding-new-candidate.md`](docs/onboarding-new-candidate.md)** to regenerate the
    `profile/` knowledge base, `candidate_skills.yaml`, the résumé, and the `config.yaml`
    discovery/preferences blocks for a new candidate.

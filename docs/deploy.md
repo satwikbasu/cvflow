@@ -26,6 +26,35 @@ It must NEVER include `approve` — the approval gate is the `/apply` hook + plu
 Verify: `hermes mcp test cvflow` → "Tools discovered: 12", no `approve`. After editing the live
 config, reload the gateway so it re-reads the server (`sudo systemctl restart hermes-gateway`).
 
+## Command hooks + plugins (deterministic, off the agent loop)
+cvflow's slash commands run as Hermes **command hooks** in the gateway process, *outside* the
+brain — the gate (`/apply`, `/skip`) and the manual discovery trigger (`/discover`). Each is a
+`hooks/<name>/` (the handler) plus a `plugins/<name>/` (registers the command so the gateway
+fires the hook). Install both into the live Hermes dirs and enable the plugins:
+```bash
+cp -r artifacts/hermes/hooks/cvflow-gate       ~/.hermes/hooks/cvflow-gate
+cp -r artifacts/hermes/plugins/cvflow-gate     ~/.hermes/plugins/cvflow-gate
+cp -r artifacts/hermes/hooks/cvflow-discover   ~/.hermes/hooks/cvflow-discover
+cp -r artifacts/hermes/plugins/cvflow-discover ~/.hermes/plugins/cvflow-discover
+# ~/.hermes/config.yaml → plugins.enabled must list BOTH:
+#   plugins:
+#     enabled:
+#     - cvflow-gate
+#     - cvflow-discover
+sudo systemctl restart hermes-gateway
+```
+Verify in the gateway log: `Loaded hook 'cvflow-gate' for events: ['command:apply', 'command:skip']`
+and `Loaded hook 'cvflow-discover' for events: ['command:discover']`. The hooks import cvflow from
+`$CVFLOW_ROOT` (default `~/cvflow`) at runtime — set `CVFLOW_ROOT` in `~/.hermes/.env` if the repo
+lives elsewhere.
+- **`/apply` / `/skip`** route to `cvflow.gate.handle_gate_command` (the sole `approve()` caller).
+  NEVER add an `approve` command/tool — the gate is human-only by construction.
+- **`/discover`** triggers a discovery run on demand: it spawns a detached
+  `python -m cvflow.cron discover --progress` and acks instantly, then streams per-stage progress,
+  the digest, and a grouped dropped-jobs report to the chat (the daily cron run stays digest-only).
+  A `fcntl` run lock (`data/discover.lock`) guarantees the daily cron and a manual `/discover` never
+  double-run.
+
 ## Headed browser under xvfb (stealth, prod only)
 Tests run headless. For production stealth set `automation.headless: false` and give the gateway a
 virtual display:
