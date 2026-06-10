@@ -50,14 +50,16 @@ def _spawn() -> None:
     python = os.path.join(root, ".venv", "bin", "python")
     os.makedirs(os.path.join(root, "data"), exist_ok=True)
     log_path = os.path.join(root, "data", f"discover-manual-{int(time.time())}.log")
-    log = open(log_path, "w")  # noqa: SIM115 — detached child owns this fd for its lifetime
-    subprocess.Popen(  # noqa: S603 — fixed argv, no shell
-        [python, "-m", "cvflow.cron", "discover", "--progress"],
-        cwd=root,
-        start_new_session=True,
-        stdout=log,
-        stderr=subprocess.STDOUT,
-    )
+    # Open the log, hand it to the child, then close our copy: Popen dups the fd into the
+    # child, so the detached run keeps writing while the long-lived gateway leaks nothing.
+    with open(log_path, "w") as log:
+        subprocess.Popen(  # noqa: S603 — fixed argv, no shell
+            [python, "-m", "cvflow.cron", "discover", "--progress"],
+            cwd=root,
+            start_new_session=True,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+        )
 
 
 async def handle(event_type: str, context: dict[str, Any]) -> dict[str, Any]:
