@@ -46,6 +46,12 @@ class DiscoveryConfig:
     max_distill_per_cohort: int
     top_n_per_cohort: int
     reconsider_discovered: bool
+    log_dir: str = "logs/discover"
+    summarize_drops: bool = True
+    drop_summary_provider: str = "tailoring"
+    drop_summary_max_chars: int = 700
+    drop_summary_samples_per_bucket: int = 3
+    cron_sends_drops: bool = False
 
 
 @dataclass(frozen=True)
@@ -178,6 +184,33 @@ def _get_str_list(data: dict[str, Any], key: str, path: str) -> list[str]:
     return list(value)
 
 
+def _opt_str(data: dict[str, Any], key: str, path: str, default: str) -> str:
+    if key not in data:
+        return default
+    value = data[key]
+    if isinstance(value, bool) or not isinstance(value, str):
+        raise ConfigError(f"key {path}{key} must be str, got {type(value).__name__}")
+    return str(value)
+
+
+def _opt_int(data: dict[str, Any], key: str, path: str, default: int) -> int:
+    if key not in data:
+        return default
+    value = data[key]
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ConfigError(f"key {path}{key} must be int, got {type(value).__name__}")
+    return int(value)
+
+
+def _opt_bool(data: dict[str, Any], key: str, path: str, default: bool) -> bool:
+    if key not in data:
+        return default
+    value = data[key]
+    if not isinstance(value, bool):
+        raise ConfigError(f"key {path}{key} must be bool, got {type(value).__name__}")
+    return bool(value)
+
+
 def _get_float(data: dict[str, Any], key: str, path: str) -> float:
     if key not in data:
         raise ConfigError(f"missing required key: {path}{key}")
@@ -283,6 +316,16 @@ def load_config(path: str | Path) -> Config:
             max_distill_per_cohort=_get_int(disc, "max_distill_per_cohort", "discovery."),
             top_n_per_cohort=_get_int(disc, "top_n_per_cohort", "discovery."),
             reconsider_discovered=_get_bool(disc, "reconsider_discovered", "discovery."),
+            log_dir=_opt_str(disc, "log_dir", "discovery.", "logs/discover"),
+            summarize_drops=_opt_bool(disc, "summarize_drops", "discovery.", True),
+            drop_summary_provider=_opt_str(
+                disc, "drop_summary_provider", "discovery.", "tailoring"
+            ),
+            drop_summary_max_chars=_opt_int(disc, "drop_summary_max_chars", "discovery.", 700),
+            drop_summary_samples_per_bucket=_opt_int(
+                disc, "drop_summary_samples_per_bucket", "discovery.", 3
+            ),
+            cron_sends_drops=_opt_bool(disc, "cron_sends_drops", "discovery.", False),
         ),
         preferences=PreferencesConfig(
             yoe_have=_get_int(pref, "yoe_have", "preferences."),

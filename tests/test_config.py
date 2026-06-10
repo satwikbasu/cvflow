@@ -251,6 +251,51 @@ def test_phase14_weights_must_sum_to_one(tmp_path):
     assert "fit_weight" in str(exc.value) and "sum" in str(exc.value).lower()
 
 
+def test_discovery_drop_summary_defaults(tmp_path: Path) -> None:
+    """Discovery section without the six new keys → load succeeds with defaults."""
+    cfg = load_config(_write(tmp_path, VALID_YAML))
+    assert cfg.discovery.log_dir == "logs/discover"
+    assert cfg.discovery.summarize_drops is True
+    assert cfg.discovery.drop_summary_provider == "tailoring"
+    assert cfg.discovery.drop_summary_max_chars == 700
+    assert cfg.discovery.drop_summary_samples_per_bucket == 3
+    assert cfg.discovery.cron_sends_drops is False
+
+
+def test_discovery_drop_summary_overrides(tmp_path: Path) -> None:
+    """Overriding each new key is reflected on the loaded config."""
+    overrides = (
+        '  log_dir: "logs/custom"\n'
+        "  summarize_drops: false\n"
+        '  drop_summary_provider: "brain"\n'
+        "  drop_summary_max_chars: 400\n"
+        "  drop_summary_samples_per_bucket: 5\n"
+        "  cron_sends_drops: true\n"
+    )
+    # Inject the new keys into the discovery section.
+    yaml_text = VALID_YAML.replace(
+        "  reconsider_discovered: false\n",
+        "  reconsider_discovered: false\n" + overrides,
+    )
+    cfg = load_config(_write(tmp_path, yaml_text))
+    assert cfg.discovery.log_dir == "logs/custom"
+    assert cfg.discovery.summarize_drops is False
+    assert cfg.discovery.drop_summary_provider == "brain"
+    assert cfg.discovery.drop_summary_max_chars == 400
+    assert cfg.discovery.drop_summary_samples_per_bucket == 5
+    assert cfg.discovery.cron_sends_drops is True
+
+
+def test_discovery_drop_summary_max_chars_wrong_type(tmp_path: Path) -> None:
+    """drop_summary_max_chars present but wrong type → ConfigError."""
+    bad = VALID_YAML.replace(
+        "  reconsider_discovered: false\n",
+        '  reconsider_discovered: false\n  drop_summary_max_chars: "not-an-int"\n',
+    )
+    with pytest.raises(ConfigError):
+        load_config(_write(tmp_path, bad))
+
+
 def test_example_config_includes_naukri_site():
     # Phase 14A §2/§8: Naukri is the only India-native source populating INR salary
     # + experience_range. The committed example must enable it (secret-free file).

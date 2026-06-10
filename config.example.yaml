@@ -24,6 +24,12 @@ discovery:
   top_n_per_cohort: 5             # how many ranked jobs to show per M/N section
   reconsider_discovered: false    # TESTING: set true to re-rank already-shown (un-applied)
                                   # jobs each run instead of dedup'ing them; false in production
+  log_dir: "logs/discover"        # full digest + drops written here every run
+  summarize_drops: true           # manual /discover only: LLM-summarize the drop log
+  drop_summary_provider: "tailoring"  # which llm.* block to use; tailoring=Cerebras
+  drop_summary_max_chars: 700     # max chars of drop summary fed back in the Telegram message
+  drop_summary_samples_per_bucket: 3  # examples per bucket fed to the LLM summarizer
+  cron_sends_drops: false         # daily cron sends digest only by default (no drop detail)
 
 preferences:
   yoe_have: 1
