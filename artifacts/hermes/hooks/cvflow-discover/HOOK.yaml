@@ -1,0 +1,4 @@
+name: cvflow-discover
+description: Deterministic manual discovery trigger for cvflow (/discover).
+events:
+  - command:discover
