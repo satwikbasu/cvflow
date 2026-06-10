@@ -164,7 +164,7 @@ before the brain sees the message** (`{"decision":"handled"}`). Each is a `hooks
 |---|---|---|
 | `/apply <n…>` | `cvflow-gate` → `cvflow.gate.handle_gate_command` | The approval path. Calls `store.approve()` (the sole caller). **Only valid from `pending_review`** → `approved`. |
 | `/skip <n…>` | `cvflow-gate` → same | `discovered`/`pending_review` → `skipped`. |
-| `/discover` | `cvflow-discover` → `cvflow.discover_command` | Spawns a detached `cron discover --progress`, acks instantly, streams progress + digest + drop report. |
+| `/discover` | `cvflow-discover` → `cvflow.discover_command` | Spawns a detached `cron discover --progress`, acks instantly, streams progress + the digest + ONE LLM-summarized drop note (full digest + per-job drops retained to `logs/discover/<ts>.md`; daily cron is digest-only). |
 
 `/apply` is used (not the Hermes built-in `/approve`) to avoid collision. Unauthorized users →
 `{}` (ignored). The hooks import cvflow from `$CVFLOW_ROOT` (default `~/cvflow`) at runtime.

@@ -51,7 +51,10 @@ lives elsewhere.
   NEVER add an `approve` command/tool — the gate is human-only by construction.
 - **`/discover`** triggers a discovery run on demand: it spawns a detached
   `python -m cvflow.cron discover --progress` and acks instantly, then streams per-stage progress,
-  the digest, and a grouped dropped-jobs report to the chat (the daily cron run stays digest-only).
+  the digest, and ONE LLM-summarized note of the dropped jobs to the chat (the full digest +
+  per-job drop report is always retained to `logs/discover/<timestamp>.md`; the daily cron run
+  stays digest-only). Tuned via `discovery.{log_dir,summarize_drops,drop_summary_provider,
+  drop_summary_max_chars,drop_summary_samples_per_bucket,cron_sends_drops}` in `config.yaml`.
   A `fcntl` run lock (`data/discover.lock`) guarantees the daily cron and a manual `/discover` never
   double-run.
 
