@@ -16,7 +16,7 @@ See **[CLAUDE.md](CLAUDE.md)** for the full goals, tech stack, architecture, and
 - **Facts come only from `profile/`** — unanswerable fields trigger a clarification loop, never a guess. Nothing fails silently.
 
 ## Status
-Implemented and operating on the EC2 host via Hermes; **Phases 0–11 + 13 complete** (169 tests, `ruff` + `mypy --strict` clean). 12 MCP tools live (no `approve` — the gate is human-only). **Phase 14 (discovery v2) is fully specced + planned**; **Phase 12 (assisted-apply hardening) is the last build item**.
+Implemented and operating on the EC2 host via Hermes; **Phases 0–11 + 13 + 14 complete** (251 tests, `ruff` + `mypy --strict` clean). 12 MCP tools live (no `approve` — the gate is human-only), plus deterministic slash commands off the agent loop: `/apply`·`/skip` (the gate) and `/discover` (manual discovery trigger). **Phase 12 (assisted-apply hardening + end-to-end dry run) is the last build item.**
 
 | ✓ | Phase | Delivers |
 |---|---|---|
@@ -33,7 +33,7 @@ Implemented and operating on the EC2 host via Hermes; **Phases 0–11 + 13 compl
 | ✅ | 10 Auth | Fernet-encrypted token vault + email-OTP coordinator |
 | ✅ | 11 Scheduling + deploy | Hermes cron (discover/sweep-otp/heartbeat) + systemd gateway unit (live) |
 | ✅ | 13 Relevance + apply ergonomics + learning | preferences engine, `/apply 1 2 4` by number, weekly preference proposals |
-| ☐ | 14 Discovery relevance v2 | **planned** — Gemini-distil → benchmark, M/N cohorts, role-agnostic, analytics/learning log |
+| ✅ | 14 Discovery relevance v2 | distil → benchmark, 💰/📋 (pay/no-pay) cohorts, deterministic seniority/skill gates, drop-reason footer, Naukri adapter; manual `/discover` trigger |
 | ☐ | 12 Assisted-apply hardening + dry run | recon real portals → harden top 1–2 ATSs → graceful manual handoff; gate-blocked dry run |
 
 ## Develop
