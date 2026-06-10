@@ -1,0 +1,5 @@
+name: cvflow-discover
+version: 1.0.0
+description: "Registers cvflow's /discover slash command so the gateway treats it as a known command. The cvflow-discover HOOK intercepts command:discover and spawns a detached discovery run — a trigger, never an approval."
+author: "cvflow"
+kind: standalone

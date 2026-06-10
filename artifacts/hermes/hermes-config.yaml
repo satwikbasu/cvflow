@@ -626,3 +626,4 @@ known_plugin_toolsets:
 plugins:
   enabled:
     - cvflow-gate
+    - cvflow-discover

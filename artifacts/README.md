@@ -21,6 +21,8 @@ system is recoverable beyond a plain `git clone`.
 | `SOUL.md` | Hermes agent persona/identity file. | None. |
 | `hooks/cvflow-gate/` | The **approval-gate hook** (`HOOK.yaml` + `handler.py`). Fires on `command:apply` / `command:skip`, routes to `cvflow.gate.handle_gate_command` (the sole `approve()` caller) OUTSIDE the agent loop, returns `decision:"handled"`. The verb is `/apply` (not the Hermes built-in `/approve`) so there is no collision. | None — imports cvflow + reads the host's gitignored `config.yaml` at runtime. |
 | `plugins/cvflow-gate/` | Plugin (`plugin.yaml` + `__init__.py`) registering `/apply` and `/skip` so they become known commands (the hook then fires). Enabled via `plugins.enabled: [cvflow-gate]` in the config. | None. |
+| `hooks/cvflow-discover/` | The **manual discovery trigger hook** (HOOK.yaml + handler.py). Fires on `command:discover`, routes to `cvflow.discover_command.handle_discover_command` OUTSIDE the agent loop, spawns a detached `python -m cvflow.cron discover --progress` and acks. A trigger, never an approval. | None — imports cvflow + reads config.yaml at runtime. |
+| `plugins/cvflow-discover/` | Plugin (`plugin.yaml` + `__init__.py`) registering `/discover` so it becomes a known command (the hook then fires). Enabled via `plugins.enabled`. | None. |
 
 ## Restoring on a new instance
 
@@ -48,9 +50,11 @@ system is recoverable beyond a plain `git clone`.
    ```bash
    cp -r artifacts/hermes/hooks/cvflow-gate   ~/.hermes/hooks/cvflow-gate
    cp -r artifacts/hermes/plugins/cvflow-gate ~/.hermes/plugins/cvflow-gate
-   # config already enables it (plugins.enabled: [cvflow-gate]). If the repo
-   # is NOT at ~/cvflow, set CVFLOW_ROOT=/path/to/cvflow in ~/.hermes/.env
-   # (the hook reads it; default is ~/cvflow).
+   cp -r artifacts/hermes/hooks/cvflow-discover   ~/.hermes/hooks/cvflow-discover
+   cp -r artifacts/hermes/plugins/cvflow-discover ~/.hermes/plugins/cvflow-discover
+   # config already enables both (plugins.enabled: [cvflow-gate, cvflow-discover]).
+   # If the repo is NOT at ~/cvflow, set CVFLOW_ROOT=/path/to/cvflow in ~/.hermes/.env
+   # (the hooks read it; default is ~/cvflow).
    ```
 6. **Install the gateway service:**
    ```bash
@@ -62,6 +66,8 @@ system is recoverable beyond a plain `git clone`.
    `mcp_cvflow_ping` from the authorized Telegram chat → `{"status":"ok","service":"cvflow"}`.
    Then `/apply <job_id>` on a pending-review job → `✅ Approved …` and status flips
    to `approved`.
+   Then `/discover` from the authorized chat → `🔎 Discovery started …`, followed over
+   the next ~15-20 min by progress messages, the digest, and the grouped drop report.
 
 ## Deliberately NOT tracked (secrets / runtime state)
 
