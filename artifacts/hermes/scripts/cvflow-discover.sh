@@ -13,19 +13,25 @@
 set -euo pipefail
 ROOT="${CVFLOW_ROOT:-/home/ubuntu/cvflow}"
 cd "$ROOT"
-mkdir -p logs
+mkdir -p data
+
+# Per-run live log in data/, named discover-cron-<ts> (the /discover hook writes the parallel
+# discover-manual-<ts>). The finished digest + drop report is archived separately to
+# logs/discover/<ts>.md on completion. See data/README.md + logs/README.md.
+TS="$(date +%s)"
+LOG="data/discover-cron-${TS}.log"
 
 # Talk to the user manager even from the gateway's system-service context (no session env).
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${XDG_RUNTIME_DIR}/bus}"
 
-if ! systemd-run --user --collect --unit="cvflow-discover-$(date +%s)" \
+if ! systemd-run --user --collect --unit="cvflow-discover-${TS}" \
         bash -c "cd '$ROOT' && exec .venv/bin/python -m cvflow.cron discover \
-            >> logs/cron-discover.log 2>&1" 2>>logs/cron-discover.log; then
+            >> '$LOG' 2>&1" 2>>"$LOG"; then
     # Fallback (no user manager / lingering): plain detached run. Escapes the 120 s kill but
     # not a gateway restart — still better than dying inline, and never silent (logged).
-    echo "$(date -Is) systemd-run --user failed; falling back to setsid" >> logs/cron-discover.log
+    echo "$(date -Is) systemd-run --user failed; falling back to setsid" >> "$LOG"
     nohup setsid .venv/bin/python -m cvflow.cron discover \
-        >> logs/cron-discover.log 2>&1 < /dev/null &
+        >> "$LOG" 2>&1 < /dev/null &
 fi
 exit 0

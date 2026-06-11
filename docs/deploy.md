@@ -57,6 +57,10 @@ lives elsewhere.
   drop_summary_max_chars,drop_summary_samples_per_bucket,cron_sends_drops}` in `config.yaml`.
   A `fcntl` run lock (`data/discover.lock`) guarantees the daily cron and a manual `/discover` never
   double-run.
+- **Discovery log convention:** every run streams its **live** raw log to a per-run file in `data/`
+  (`discover-manual-<ts>.log` for `/discover`, `discover-cron-<ts>.log` for the daily cron); the
+  **finished** digest is archived to `logs/discover/<ts>.md` only on completion. `data/` = live
+  per-run logs, `logs/discover/` = finished digests (see `data/README.md` + `logs/README.md`).
 
 ## Headed browser under xvfb (stealth, prod only)
 Tests run headless. For production stealth set `automation.headless: false` and give the gateway a

@@ -169,6 +169,15 @@ before the brain sees the message** (`{"decision":"handled"}`). Each is a `hooks
 `/apply` is used (not the Hermes built-in `/approve`) to avoid collision. Unauthorized users →
 `{}` (ignored). The hooks import cvflow from `$CVFLOW_ROOT` (default `~/cvflow`) at runtime.
 
+**Discovery log convention.** Both the `/discover` hook and the daily cron launch the run **detached
+in a transient `systemd-run --user` unit** (own cgroup under `user@.service`, so it survives Hermes'
+~120 s `--no-agent` script kill *and* a `systemctl restart hermes-gateway`; requires
+`loginctl enable-linger`; falls back to `setsid` if the user manager is unreachable). Each run
+streams its **live** raw log to a per-run file in `data/` — `discover-manual-<ts>.log` (`/discover`)
+or `discover-cron-<ts>.log` (cron) — and, **on completion**, archives the formatted digest + drop
+report to `logs/discover/<ts>.md`. So `data/` holds the live per-run logs and `logs/discover/` the
+finished digests; a run killed mid-flight leaves only its `data/` log.
+
 > **Note on the apply transition:** `store.approve()` requires the job to be in
 > `pending_review`. A freshly *discovered* job is not — it must first pass through
 > `request_review` (the brain's tailoring step). So `/apply` directly off the digest only

@@ -78,6 +78,11 @@ JobSpy + nkparam, Tectonic).
 > manager is unreachable. Requires `loginctl enable-linger` (done on the box; documented in
 > deploy.md). Both the daily script and the `/discover` hook were hardened. Verified live: the daily
 > script exits <1 s and the run shows up under `user@1000.service` scraping normally.
+> **Log convention locked down:** every run's **live** raw log is a per-run file in `data/`
+> (`discover-manual-<ts>.log` for `/discover`, `discover-cron-<ts>.log` for cron — the earlier
+> `logs/cron-discover.log` single-file choice was wrong and reverted); the **finished** digest is
+> archived to `logs/discover/<ts>.md` on completion. Documented in `data/README.md`,
+> `logs/README.md`, `deploy.md`, and `architecture-and-workflow.md`.
 
 **Problem being fixed:** Hermes cron kills any `--no-agent` script at ~120 s; a discovery run takes
 10–25 min, so the daily digest has been dying with `error: Script timed out after 120s`. And the
