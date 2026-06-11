@@ -80,10 +80,30 @@ class CvflowTools:
         d["status"] = app.status.value
         return d
 
-    def list_applications(self, status: str) -> list[dict[str, Any]]:
-        """Return all applications with the given status string."""
+    def list_applications(
+        self, status: str, limit: int = 10, offset: int = 0
+    ) -> dict[str, Any]:
+        """Return a compact, paginated view of applications with the given status.
+
+        Only minimal per-job fields (job_id/company/role) so the brain's context and
+        reply stay small — a full 60+ job dump blows the model's output budget. ``total``
+        + ``next_offset`` let the caller page ("show the next 10" → call with that offset).
+        """
         apps = self._store.list_by_status(Status(status))
-        return [self._app_to_dict(a) for a in apps]
+        total = len(apps)
+        window = apps[offset : offset + limit]
+        end = offset + len(window)
+        return {
+            "status": status,
+            "total": total,
+            "offset": offset,
+            "count": len(window),
+            "next_offset": end if end < total else None,
+            "applications": [
+                {"job_id": a.job_id, "company": a.company, "role": a.role}
+                for a in window
+            ],
+        }
 
     def get_application(self, job_id: str) -> dict[str, Any] | None:
         """Return a single application dict or None if not found."""

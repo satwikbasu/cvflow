@@ -38,12 +38,46 @@ def test_list_and_get_applications_dispatch_to_store(tmp_path):
     )
 
     listed = tools.list_applications(status="discovered")
-    assert {a["job_id"] for a in listed} == {"indeed:1", "indeed:2"}
-    assert listed[0]["company"] in {"Acme", "Globex"}
+    assert listed["total"] == 2
+    assert listed["count"] == 2
+    assert listed["offset"] == 0
+    assert listed["next_offset"] is None
+    assert {a["job_id"] for a in listed["applications"]} == {"indeed:1", "indeed:2"}
+    assert listed["applications"][0]["company"] in {"Acme", "Globex"}
+    # minimal fields only — status is the query, not repeated per row
+    assert set(listed["applications"][0]) == {"job_id", "company", "role"}
 
     one = tools.get_application("indeed:1")
     assert one["role"] == "Backend Engineer"
     assert one["status"] == Status.DISCOVERED.value
+
+
+def test_list_applications_paginates_default_10(tmp_path):
+    from cvflow.storage import ApplicationStore
+
+    store = ApplicationStore(":memory:")
+    for i in range(23):
+        store.add(f"indeed:{i}", f"Co{i}", "Engineer", f"https://x/{i}")
+    tools = CvflowTools(
+        store=store, knowledge=None, discovery=None, analyzer=None, tailor=None
+    )
+
+    page1 = tools.list_applications(status="discovered")
+    assert page1["total"] == 23
+    assert page1["count"] == 10
+    assert page1["offset"] == 0
+    assert page1["next_offset"] == 10
+    assert len(page1["applications"]) == 10
+    assert set(page1["applications"][0]) == {"job_id", "company", "role"}
+
+    page2 = tools.list_applications(status="discovered", offset=page1["next_offset"])
+    assert page2["offset"] == 10
+    assert page2["count"] == 10
+    assert page2["next_offset"] == 20
+
+    page3 = tools.list_applications(status="discovered", offset=20)
+    assert page3["count"] == 3
+    assert page3["next_offset"] is None
 
 
 def test_get_application_missing_returns_none(tmp_path):
@@ -218,7 +252,7 @@ def test_build_tools_wires_store_and_knowledge(tmp_path, monkeypatch):
     cfg = load_config(cfg_path)
     tools = build_tools(cfg)
     assert tools.ping()["status"] == "ok"
-    assert isinstance(tools.list_applications(status="discovered"), list)
+    assert isinstance(tools.list_applications(status="discovered")["applications"], list)
 
 
 def test_discover_returns_url_for_every_job():
