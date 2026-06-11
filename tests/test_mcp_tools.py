@@ -50,6 +50,11 @@ def test_list_and_get_applications_dispatch_to_store(tmp_path):
     one = tools.get_application("indeed:1")
     assert one["role"] == "Backend Engineer"
     assert one["status"] == Status.DISCOVERED.value
+    assert one["jd_url"] == "https://x/1"
+    # compact view drops always-null proof internals so the URL stays prominent
+    assert "proof_url" not in one
+    assert "proof_screenshot_path" not in one
+    assert "otp_deadline" not in one
 
 
 def test_list_applications_paginates_default_10(tmp_path):

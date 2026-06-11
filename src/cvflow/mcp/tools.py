@@ -106,11 +106,27 @@ class CvflowTools:
         }
 
     def get_application(self, job_id: str) -> dict[str, Any] | None:
-        """Return a single application dict or None if not found."""
+        """Return a compact application view, or None if not found.
+
+        Drops the always-null proof/OTP internals so the payload stays small and the JD
+        URL stays prominent — a long noisy record made the brain mangle the URL.
+        """
         app = self._store.get(job_id)
         if app is None:
             return None
-        return self._app_to_dict(app)
+        out: dict[str, Any] = {
+            "job_id": app.job_id,
+            "company": app.company,
+            "role": app.role,
+            "status": app.status.value,
+            "jd_url": app.jd_url,
+            "discovered_at": app.discovered_at,
+        }
+        for k in ("tailored_pdf_path", "applied_at", "confirmation_ref"):
+            v = getattr(app, k, None)
+            if v:
+                out[k] = v
+        return out
 
     # ------------------------------------------------------------------
     # Workflow skills
