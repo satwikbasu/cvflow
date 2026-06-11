@@ -72,6 +72,11 @@ Xvfb :99 -screen 0 1920x1080x24 &        # or a small systemd unit
 Each job runs `python -m cvflow.cron <job>` via a `--no-agent` wrapper and notifies Telegram through
 `hermes send` (the wrapper prints nothing, so cron does not double-deliver).
 ```bash
+# One-time: let the user manager persist across sessions so detached discovery runs (launched as
+# transient user units) survive a `systemctl restart hermes-gateway`. Without this they fall back
+# to a plain detached run that escapes the 120 s kill but not a gateway restart.
+loginctl enable-linger "$USER"
+
 # Reproduce the entire cron schedule from config.yaml (idempotent — safe to re-run).
 # Copies the cvflow-*.sh scripts into ~/.hermes/scripts/, clears any old cvflow-* jobs, and
 # re-creates all four (discover / sweep-otp / heartbeat / learn) with schedules derived from

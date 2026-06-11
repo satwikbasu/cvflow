@@ -50,16 +50,44 @@ def _spawn() -> None:
     python = os.path.join(root, ".venv", "bin", "python")
     os.makedirs(os.path.join(root, "data"), exist_ok=True)
     log_path = os.path.join(root, "data", f"discover-manual-{int(time.time())}.log")
-    # Open the log, hand it to the child, then close our copy: Popen dups the fd into the
-    # child, so the detached run keeps writing while the long-lived gateway leaks nothing.
-    with open(log_path, "w") as log:
-        subprocess.Popen(  # noqa: S603 — fixed argv, no shell
-            [python, "-m", "cvflow.cron", "discover", "--progress"],
-            cwd=root,
-            start_new_session=True,
-            stdout=log,
+
+    # Run the ~15-20 min discovery in a transient *user* systemd unit so it lives in
+    # user@.service's cgroup, NOT the gateway's. `systemctl restart hermes-gateway` SIGKILLs
+    # the gateway cgroup (KillMode=mixed) — which killed a manual run mid-flight on 2026-06-11.
+    # A user unit survives that. Requires lingering once per box: `loginctl enable-linger`.
+    uid = os.getuid()
+    env = dict(os.environ)
+    env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{uid}")
+    env.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path=/run/user/{uid}/bus")
+    inner = (
+        f"cd {root!r} && exec {python!r} -m cvflow.cron discover --progress "
+        f">> {log_path!r} 2>&1"
+    )
+    try:
+        subprocess.run(  # noqa: S603 — fixed argv, no shell injection (paths are ours)
+            [
+                "systemd-run", "--user", "--collect",
+                f"--unit=cvflow-discover-manual-{int(time.time())}",
+                "bash", "-c", inner,
+            ],
+            env=env,
+            check=True,
+            stdout=subprocess.DEVNULL,
             stderr=subprocess.STDOUT,
         )
+    except (OSError, subprocess.CalledProcessError):
+        # Fallback (no user manager / lingering): plain detached child. Escapes the agent loop
+        # but NOT a gateway restart — still better than running inline, and never silent.
+        with open(log_path, "a") as log:
+            log.write("systemd-run --user failed; falling back to detached Popen\n")
+            log.flush()
+            subprocess.Popen(  # noqa: S603 — fixed argv, no shell
+                [python, "-m", "cvflow.cron", "discover", "--progress"],
+                cwd=root,
+                start_new_session=True,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+            )
 
 
 async def handle(event_type: str, context: dict[str, Any]) -> dict[str, Any]:
