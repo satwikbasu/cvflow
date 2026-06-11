@@ -67,8 +67,17 @@ JobSpy + nkparam, Tectonic).
 > `12:00 Asia/Kolkata` → `30 6 * * *`); committed idempotent `scripts/install-hermes-cron.sh`
 > copies the scripts, clears `cvflow-*` jobs, re-creates all four (registers the missing
 > `cvflow-learn`); `docs/deploy.md` uses the installer. Commits `4ad62b3`/`7b9fcaa`/`5cb1c84`/
-> `9620792`. Tests `tests/test_cron_schedule.py` (6, lock-independent). Still TODO on the live box:
-> run the installer + confirm the next daily digest arrives with no 120 s error.
+> `9620792`. Tests `tests/test_cron_schedule.py` (6, lock-independent).
+> **DEPLOYED to the live box 2026-06-11:** ran `install-hermes-cron.sh` (4 jobs now registered with
+> config-derived UTC schedule — discover `30 6 * * *`, heartbeat `720m`, **`cvflow-learn` finally
+> registered**), copied the updated `/discover` hook, restarted the gateway.
+> **Extra hardening (`410d97e`):** the detached run now launches in a **transient user systemd unit**
+> (`systemd-run --user --collect`) so it lives under `user@.service`'s cgroup, not the gateway's —
+> a `systemctl restart hermes-gateway` (KillMode=mixed) had SIGKILLed a 15-min run mid-flight on
+> 2026-06-11. Survives both the 120 s kill and a gateway restart; falls back to `setsid` if the user
+> manager is unreachable. Requires `loginctl enable-linger` (done on the box; documented in
+> deploy.md). Both the daily script and the `/discover` hook were hardened. Verified live: the daily
+> script exits <1 s and the run shows up under `user@1000.service` scraping normally.
 
 **Problem being fixed:** Hermes cron kills any `--no-agent` script at ~120 s; a discovery run takes
 10–25 min, so the daily digest has been dying with `error: Script timed out after 120s`. And the
