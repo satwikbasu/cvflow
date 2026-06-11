@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from cvflow.config import load_config
 from cvflow.statemachine import Status
 
 
@@ -111,6 +112,34 @@ def format_drop_report(records: list[Any]) -> list[str]:
             add(line)
     flush()
     return messages
+
+
+def to_utc_cron(hhmm: str, tz: str) -> str:
+    """Convert an ``HH:MM`` local time in IANA ``tz`` to a UTC ``M H * * *`` cron expr.
+
+    Hermes interprets cron in UTC and the box runs UTC. Uses a fixed reference date; the
+    UTC offset for these tzs is constant (India has no DST), so the date is immaterial.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    hh, mm = (int(x) for x in hhmm.split(":"))
+    local = datetime(2026, 1, 1, hh, mm, tzinfo=ZoneInfo(tz))
+    utc = local.astimezone(ZoneInfo("UTC"))
+    return f"{utc.minute} {utc.hour} * * *"
+
+
+def format_hermes_schedule(config: Any) -> list[str]:
+    """Derive the four ``hermes cron create`` registration lines from config."""
+    sch = config.schedule
+    discover_expr = to_utc_cron(sch.daily_discovery_time, sch.timezone)
+    heartbeat_expr = f"every {sch.heartbeat_interval_minutes}m"
+    return [
+        f"hermes cron create '{discover_expr}' --no-agent --script cvflow-discover.sh --name cvflow-discover",  # noqa: E501
+        "hermes cron create 'every 5m' --no-agent --script cvflow-sweep-otp.sh --name cvflow-sweep-otp",  # noqa: E501
+        f"hermes cron create '{heartbeat_expr}' --no-agent --script cvflow-heartbeat.sh --name cvflow-heartbeat",  # noqa: E501
+        "hermes cron create 'every 168h' --no-agent --script cvflow-learn.sh --name cvflow-learn",
+    ]
 
 
 def run_job(
@@ -289,9 +318,14 @@ def main(
     args = list(argv) if argv is not None else sys.argv[1:]
     if not args or len(args) > 2:
         raise SystemExit(
-            "usage: python -m cvflow.cron <discover [--progress]|sweep-otp|heartbeat|learn>"
+            "usage: python -m cvflow.cron"
+            " <discover [--progress]|sweep-otp|heartbeat|learn|print-hermes-schedule>"
         )
     job = args[0]
+    if job == "print-hermes-schedule":
+        for line in format_hermes_schedule(load_config("config.yaml")):
+            print(line)
+        return
     manual = job == "discover" and "--progress" in args[1:]
     summary_provider: Any = None
     log_dir: str | None = None
@@ -300,8 +334,6 @@ def main(
     report_drops = manual
     if services is None:
         import logging
-
-        from cvflow.config import load_config
 
         # Real invocation: stream INFO progress (stage timings, per-job distill) to stdout
         # so a live run is observable. Tests inject `services` and skip this.
