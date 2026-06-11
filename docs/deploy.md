@@ -72,17 +72,22 @@ Xvfb :99 -screen 0 1920x1080x24 &        # or a small systemd unit
 Each job runs `python -m cvflow.cron <job>` via a `--no-agent` wrapper and notifies Telegram through
 `hermes send` (the wrapper prints nothing, so cron does not double-deliver).
 ```bash
-mkdir -p ~/.hermes/scripts
-cp artifacts/hermes/scripts/cvflow-*.sh ~/.hermes/scripts/ && chmod +x ~/.hermes/scripts/cvflow-*.sh
-
-hermes cron create '0 8 * * *'  --no-agent --script cvflow-discover.sh  --name cvflow-discover
-hermes cron create 'every 5m'   --no-agent --script cvflow-sweep-otp.sh --name cvflow-sweep-otp
-hermes cron create 'every 30m'  --no-agent --script cvflow-heartbeat.sh --name cvflow-heartbeat
-hermes cron create 'every 168h' --no-agent --script cvflow-learn.sh     --name cvflow-learn
-hermes cron list
+# Reproduce the entire cron schedule from config.yaml (idempotent — safe to re-run).
+# Copies the cvflow-*.sh scripts into ~/.hermes/scripts/, clears any old cvflow-* jobs, and
+# re-creates all four (discover / sweep-otp / heartbeat / learn) with schedules derived from
+# schedule.daily_discovery_time + schedule.timezone (converted to UTC) and
+# schedule.heartbeat_interval_minutes.
+scripts/install-hermes-cron.sh
 ```
-- `0 8 * * *` = daily 08:00 (`schedule.daily_discovery_time`); `every 30m` ↔
-  `schedule.heartbeat_interval_minutes`.
+- The schedule is **derived from `config.yaml`**, not typed by hand: the daily time comes from
+  `schedule.daily_discovery_time` + `schedule.timezone` (Hermes interprets cron in UTC and the box
+  runs UTC, so e.g. `12:00 Asia/Kolkata` → `30 6 * * *`), and the heartbeat from
+  `schedule.heartbeat_interval_minutes`. Inspect the lines before they run with
+  `.venv/bin/python -m cvflow.cron print-hermes-schedule`.
+- The daily `cvflow-discover` run is **detached** — the script spawns the 10–25 min discovery and
+  returns in under a second, so Hermes' ~120 s `--no-agent` script kill never interrupts it; the
+  digest arrives from the detached process. Verify registration with `hermes cron list` (expect all
+  four `cvflow-*` jobs, including `cvflow-learn`).
 - **`cvflow-sweep-otp` (every 5 min) enforces OTP timeouts** (`OtpCoordinator.expire_overdue`) —
   this is what makes the Phase-10 OTP timeout actually fire while idle.
 - `cvflow-discover` posts the daily digest (numbered; reply `/apply 1 2 4` / `/skip 3` / `/apply all`).
