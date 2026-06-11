@@ -35,17 +35,21 @@ def test_format_digest_empty():
     assert format_digest({"M": [], "N": []}) == "No new jobs today."
 
 
-def test_format_digest_renders_filtered_footer_in_bucket_order():
+def test_filtered_footer_renders_in_bucket_order():
+    from cvflow.cron import _filtered_footer
+
+    dropped = {"wrong stack": 59, "too senior": 71, "already seen": 4, "abroad": 0}
+    footer = _filtered_footer(dropped)
+    # shown in DROP_BUCKET_ORDER (too senior before wrong stack), zero-count bucket omitted
+    assert footer == "🔍 Filtered today: 71 too senior · 59 wrong stack · 4 already seen"
+
+
+def test_format_digest_never_includes_footer():
+    # The drop counts are delivered separately now (drop summary / footer fallback), never in
+    # the digest — so it isn't shown twice on a manual /discover.
     result = _result()
-    result["_dropped"] = {"wrong stack": 59, "too senior": 71, "already seen": 4, "abroad": 0}
-    text = format_digest(result)
-    # shown in DROP_BUCKET_ORDER (too senior before abroad before wrong stack), zeros omitted
-    assert "🔍 Filtered today: 71 too senior · 59 wrong stack · 4 already seen" in text
-    assert "abroad" not in text  # zero-count bucket omitted
-
-
-def test_format_digest_no_footer_without_drops():
-    assert "Filtered today" not in format_digest(_result())
+    result["_dropped"] = {"wrong stack": 59, "too senior": 71}
+    assert "Filtered today" not in format_digest(result)
 
 
 def test_run_job_discover_sends_digest():

@@ -47,9 +47,9 @@ def format_digest(result: dict[str, Any]) -> str:
             idx += 1
     else:
         parts.append("No pay-not-stated jobs today.\n")
-    footer = _filtered_footer(result.get("_dropped"))
-    if footer:
-        parts.append(footer)
+    # The drop counts are delivered separately (the manual /discover drop summary, or the
+    # `_filtered_footer` fallback) and retained in the log — keep them OUT of the digest so they
+    # aren't shown twice. The daily cron is digest-only by design.
     parts.append("Reply: /apply 1 2 4  •  /skip 3  •  /apply all")
     return "\n".join(parts)
 

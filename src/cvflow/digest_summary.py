@@ -1,6 +1,7 @@
 """digest_summary — log writer, drop compressor, and LLM summarizer for discover output."""
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -8,6 +9,8 @@ from typing import Any
 
 from cvflow.discovery import DROP_BUCKET_ORDER, DropRecord
 from cvflow.llm import LLMError
+
+logger = logging.getLogger("cvflow.digest_summary")
 
 
 def write_discover_log(
@@ -108,7 +111,14 @@ def summarize_drops(
 
     try:
         raw: str = provider.generate(prompt, temperature=0.3, max_tokens=max_tokens)
-    except LLMError:
+    except LLMError as exc:
+        # The caller falls back to the deterministic footer — but log WHY so a persistently
+        # failing summary provider is diagnosable (never fail silently, invariant 3).
+        logger.warning("drop summary failed (%s); falling back to footer", exc)
         return None
 
-    return raw.strip()[:max_chars]
+    summary = raw.strip()[:max_chars]
+    if not summary:
+        logger.warning("drop summary provider returned empty text; falling back to footer")
+        return None
+    return summary

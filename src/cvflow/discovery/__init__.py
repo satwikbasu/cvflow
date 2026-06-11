@@ -411,7 +411,8 @@ class DiscoveryService:
         scrape_secs = time.monotonic() - t0
         logger.info("stage scrape: %d raw rows in %.1fs", len(rows), scrape_secs)
         progress(f"📡 Scraped {len(rows)} raw postings in {scrape_secs:.0f}s")
-        postings = self._prefilter(normalize_rows(rows), drops, records)
+        normalized = normalize_rows(rows)
+        postings = self._prefilter(normalized, drops, records)
         candidates: list[JobPosting] = []
         for p in postings:
             if self._already_seen(p.job_id):
@@ -419,11 +420,15 @@ class DiscoveryService:
             else:
                 candidates.append(p)
         logger.info(
-            "stage prefilter+dedup: %d candidates (from %d postings)",
-            len(candidates), len(postings),
+            "stage prefilter+dedup: %d candidates (from %d unique of %d raw)",
+            len(candidates), len(normalized), len(rows),
         )
+        # Report the funnel honestly: candidates AFTER the title/salary/internship prefilter
+        # and cross-day dedup, out of the unique normalized postings (the big 'raw → unique'
+        # and 'unique → candidates' cuts both happen here, so show the unique baseline).
         progress(
-            f"🧹 {len(candidates)} candidates after prefilter + dedup (from {len(postings)})"
+            f"🧹 {len(candidates)} candidates after prefilter + dedup "
+            f"(from {len(normalized)} unique postings)"
         )
         # Distill ONCE over the candidate pool, then partition — salary is usually only in
         # the JD text (JobSpy structured fields are empty), so the M/N split must use the
