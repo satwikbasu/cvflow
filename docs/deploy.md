@@ -105,6 +105,35 @@ scripts/install-hermes-cron.sh
 
 Manual run of any job: `cd /home/ubuntu/cvflow && .venv/bin/python -m cvflow.cron heartbeat`.
 
+## Changing the schedule / reloading cron + config
+
+What you reload depends on **what** you changed:
+
+| You changed | File | How to reload |
+|---|---|---|
+| Daily discovery time / timezone / heartbeat interval | `config.yaml` → `schedule.{daily_discovery_time,timezone,heartbeat_interval_minutes}` | `scripts/install-hermes-cron.sh` (no gateway restart) |
+| `sweep-otp` (`every 5m`) or `learn` (`every 168h`) cadence | `src/cvflow/cron.py::format_hermes_schedule` (hardcoded, not config) | `scripts/install-hermes-cron.sh` (no gateway restart) |
+| Discovery behavior (`discovery.*`, `preferences.*`, `auth.otp_timeout_minutes`) | `config.yaml` | **nothing** — each cron fire is a fresh `python -m cvflow.cron` process that re-reads `config.yaml`; the **next** run applies it (a run already in flight does not) |
+| A cron script body (`artifacts/hermes/scripts/cvflow-*.sh`) | repo | `scripts/install-hermes-cron.sh` copies them into `~/.hermes/scripts/` (no restart; Hermes re-reads the script each fire) |
+| The `/discover` (or `/apply`/`/skip`) hook handler | `artifacts/hermes/hooks/<name>/handler.py` | copy to `~/.hermes/hooks/<name>/` **and** `sudo systemctl restart hermes-gateway` (hooks load only at gateway start) |
+
+Commands:
+```bash
+# 1. Schedule change (config.yaml schedule.* or the hardcoded sweep/learn cadence):
+.venv/bin/python -m cvflow.cron print-hermes-schedule   # dry-run; fails loudly if config is bad
+scripts/install-hermes-cron.sh                          # re-register all four jobs (idempotent)
+hermes cron list                                        # confirm
+
+# 2. Hook handler change only:
+cp artifacts/hermes/hooks/cvflow-discover/handler.py ~/.hermes/hooks/cvflow-discover/
+sudo systemctl restart hermes-gateway   # ⚠ kills an in-flight run unless it is in a systemd-run --user unit
+```
+The installer is idempotent: it copies `cvflow-*.sh`, deletes any existing `cvflow-*` cron jobs, and
+re-creates them from `print-hermes-schedule`. It does **not** touch hooks/plugins. **Note:** new
+`config.yaml` keys are optional-with-defaults, but `config.py` fails loudly on a *malformed* file —
+run the `print-hermes-schedule` dry-run after any edit, and keep `config.yaml` in sync with
+`config.example.yaml` (the example is the documented superset of every key).
+
 ## Security posture
 Unprivileged `ubuntu` user; `chmod 600` on `config.yaml`, the Fernet key, and encrypted blobs;
 burner Google account for SSO; host firewall closed to inbound (Telegram is outbound long-polling).

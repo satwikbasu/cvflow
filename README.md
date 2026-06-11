@@ -117,6 +117,25 @@ tracked under **[`artifacts/`](artifacts/README.md)**. Real secrets never enter 
 
 Full detail and the list of what's deliberately *not* tracked is in [`artifacts/README.md`](artifacts/README.md).
 
+### Changing the schedule / reloading cron + config
+- **Daily discovery time / timezone / heartbeat interval** → edit `config.yaml`
+  `schedule.{daily_discovery_time,timezone,heartbeat_interval_minutes}`, then re-register
+  (no gateway restart):
+  ```bash
+  .venv/bin/python -m cvflow.cron print-hermes-schedule   # dry-run; fails loudly on bad config
+  scripts/install-hermes-cron.sh && hermes cron list      # idempotent: re-creates all 4 jobs
+  ```
+  (`sweep-otp` `every 5m` and `learn` `every 168h` cadences are hardcoded in
+  `cron.py::format_hermes_schedule`, not config — edit there then re-run the installer.)
+- **Discovery behavior** (`discovery.*`, `preferences.*`, `auth.otp_timeout_minutes` in
+  `config.yaml`) → **no reload**; each cron fire reads `config.yaml` fresh, so the next run applies it.
+- **A `cvflow-*.sh` script body** → `scripts/install-hermes-cron.sh` (copies into `~/.hermes/scripts/`,
+  no restart).
+- **A hook handler** (`artifacts/hermes/hooks/*/handler.py`) → copy to `~/.hermes/hooks/<name>/`
+  **and** `sudo systemctl restart hermes-gateway` (hooks load at gateway start).
+
+Full reload matrix + commands: [`docs/deploy.md`](docs/deploy.md) → "Changing the schedule / reloading cron + config".
+
 ## Layout
 | Path | Purpose |
 |---|---|
