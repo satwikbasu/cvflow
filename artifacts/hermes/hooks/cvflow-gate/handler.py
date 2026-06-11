@@ -31,8 +31,15 @@ def _build_store():
     from cvflow.config import load_config
     from cvflow.storage import ApplicationStore
 
-    cfg = load_config(os.path.join(_repo_root(), "config.yaml"))
-    return ApplicationStore(cfg.storage.db_path)
+    root = _repo_root()
+    cfg = load_config(os.path.join(root, "config.yaml"))
+    # config db_path is relative ("data/cvflow.db"); resolve it against the repo root, NOT the
+    # gateway's cwd (~/.hermes). Otherwise the gate opens a phantom ~/.hermes/data/cvflow.db with
+    # no digest_slots and every /apply <n> returns "unknown" (it never sees the discovery DB).
+    db_path = cfg.storage.db_path
+    if not os.path.isabs(db_path):
+        db_path = os.path.join(root, db_path)
+    return ApplicationStore(db_path)
 
 
 def _authorized_user_id():
