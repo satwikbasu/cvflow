@@ -42,6 +42,11 @@ brain — the gate (`/apply`, `/skip`) and the manual discovery trigger (`/disco
 `hooks/<name>/` (the handler) plus a `plugins/<name>/` (registers the command so the gateway
 fires the hook). Install both into the live Hermes dirs and enable the plugins:
 ```bash
+# ⚠ Create the target dirs FIRST. Hermes creates ~/.hermes/hooks/ on first run but may NOT
+# create ~/.hermes/plugins/ — and `cp -r SRC ~/.hermes/plugins/cvflow-gate` FAILS when the
+# parent ~/.hermes/plugins/ doesn't exist (observed on a fresh box: hooks/ existed, plugins/
+# didn't). In general: verify a target dir exists before copying into it.
+mkdir -p ~/.hermes/hooks ~/.hermes/plugins
 cp -r artifacts/hermes/hooks/cvflow-gate       ~/.hermes/hooks/cvflow-gate
 cp -r artifacts/hermes/plugins/cvflow-gate     ~/.hermes/plugins/cvflow-gate
 cp -r artifacts/hermes/hooks/cvflow-discover   ~/.hermes/hooks/cvflow-discover

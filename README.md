@@ -95,6 +95,8 @@ tracked under **[`artifacts/`](artifacts/README.md)**. Real secrets never enter 
 5. **Install the command hooks + plugins** (the deterministic slash commands that run *outside*
    the brain: the `/apply`/`/skip` approval gate and the manual `/discover` trigger):
    ```bash
+   mkdir -p ~/.hermes/hooks ~/.hermes/plugins   # ⚠ plugins/ may not exist yet — cp into a
+                                                # missing dir fails; create targets before copying
    cp -r artifacts/hermes/hooks/cvflow-gate       ~/.hermes/hooks/cvflow-gate
    cp -r artifacts/hermes/plugins/cvflow-gate     ~/.hermes/plugins/cvflow-gate
    cp -r artifacts/hermes/hooks/cvflow-discover   ~/.hermes/hooks/cvflow-discover
