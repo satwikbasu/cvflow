@@ -59,7 +59,16 @@ JobSpy + nkparam, Tectonic).
 
 ---
 
-### [ ] 1A — Cron reproducibility + the 120 s fix
+### [x] 1A — Cron reproducibility + the 120 s fix
+
+> **DONE 2026-06-11** (sub-plan `2026-06-10-p1a-cron-fix.md`). `cvflow-discover.sh` is now a
+> sub-second detached spawner (`nohup setsid … &`); `cron.py` gained `to_utc_cron` +
+> `format_hermes_schedule` + a `print-hermes-schedule` subcommand (config-derived, UTC:
+> `12:00 Asia/Kolkata` → `30 6 * * *`); committed idempotent `scripts/install-hermes-cron.sh`
+> copies the scripts, clears `cvflow-*` jobs, re-creates all four (registers the missing
+> `cvflow-learn`); `docs/deploy.md` uses the installer. Commits `4ad62b3`/`7b9fcaa`/`5cb1c84`/
+> `9620792`. Tests `tests/test_cron_schedule.py` (6, lock-independent). Still TODO on the live box:
+> run the installer + confirm the next daily digest arrives with no 120 s error.
 
 **Problem being fixed:** Hermes cron kills any `--no-agent` script at ~120 s; a discovery run takes
 10–25 min, so the daily digest has been dying with `error: Script timed out after 120s`. And the
@@ -390,3 +399,9 @@ reality; `ruff check .`, `mypy src`, full pytest green.
 ## Progress log
 
 - 2026-06-10 — plan written (Fable architecture-review session). Nothing executed yet.
+- 2026-06-11 — **1A shipped** (sub-plan `2026-06-10-p1a-cron-fix.md`): detached `cvflow-discover.sh`,
+  config-derived `print-hermes-schedule` (UTC conversion via zoneinfo), idempotent
+  `install-hermes-cron.sh`, deploy.md updated. Commits `4ad62b3`/`7b9fcaa`/`5cb1c84`/`9620792`.
+  Live-box install + next-digest verification still pending. Noted: `tests/test_cron.py`'s 9
+  `run_job("discover")` tests share the real `data/discover.lock` (no injected lock), so they fail
+  while any live `/discover` runs — a pre-existing P1B test-isolation flake, not 1A.
