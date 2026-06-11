@@ -17,21 +17,21 @@ The roadmap, phase order, exit criteria, and full decision log live in **`docs/s
 1. **The approval gate is deterministic, not a convention.** The only path to status `approved` is the Telegram approval callback; the submission entrypoint asserts `status == approved` and raises otherwise. An agent/LLM may *call* the gate but must never be able to satisfy it. (Goal 4.)
 2. **Never fabricate facts about the user.** All facts come from `profile/`. A field unanswerable from the knowledge base triggers the clarification loop — never a guess. (Goals 3, 8.)
 3. **Never fail silently.** Every skip, OTP timeout, and error is logged *and* reported to the user via Telegram. (Goals 7, 8, 9.)
-4. **Respect free-tier limits by design** (Gemini RPD, NIM RPM, JobSpy throttle) and **flag any change that introduces a cost** (paid API/proxy/host/overage).
+4. **Respect free-tier limits by design** (Mistral RPM/TPM, Cerebras 5 RPM/2400-RPD, JobSpy throttle) and **flag any change that introduces a cost** (paid API/proxy/host/overage).
 5. **Credentials never enter git; PII is intentionally committed to this PRIVATE repo.** `config.yaml`, `data/`, `logs/`, and the CV PDF (tokens, keys, cookies, runtime data) stay gitignored. The `profile/` knowledge base + `form_fields.json` and the **master resume LaTeX source** (`resume/*.tex`) ARE committed on purpose (PII, no secrets) so the system deploys by `git clone` — do **not** re-ignore them. Tokens/cookies are Fernet-encrypted at rest, `chmod 600`.
 
 ## Architecture (big picture)
 
 **Orchestration substrate = Hermes Agent** (Nous Research, self-hosted, MIT-ish). Hermes is the always-on runtime and provides the **Telegram interface, scheduling, the LLM brain, and the browser runtime**. cvflow's job is to supply **deterministic domain skills** that Hermes calls — discovery, JD analysis, resume tailoring, storage, and crucially the **approval gate**. The agent's probabilistic loop may *invoke* these skills but can never substitute for them.
 
-**LLM:** brain = `meta/llama-3.3-70b-instruct` on the NVIDIA NIM free tier (fast ~1.5–2s, non-reasoning, good tool-calling, 128k ctx, ~40 RPM / no hard daily cap), configured inside Hermes via `hermes model`. Resume tailoring escalates to **Gemini 2.5 Flash** (low volume, higher quality). *(Nemotron Super 49B v1.5 was tested and rejected — as a reasoning model its latency hit ~3.5 min on the free tier, unusable for an agent.)*
+**LLM (two free vendors, NIM removed 2026-06-11):** brain = **Mistral `mistral-small-2506`** (free tier: ~300 RPM / 2.25M TPM, 128k ctx, native tool-calling, ~0.4s/call), configured in Hermes' `~/.hermes/config.yaml` as `model.default` with `provider: custom` + `base_url: https://api.mistral.ai/v1` (Hermes derives `MISTRAL_API_KEY` from the host). Mistral also does discovery distillation + fit-ranking, and cvflow's `analyze_jd` + weekly `learn`. **Cerebras `gpt-oss-120b`** (free tier: 5 RPM / 65k ctx) does the low-volume quality work: résumé tailoring, essays, and the drop-summary. *(NVIDIA NIM llama-3.3-70b was the brain but its free-tier latency hit 2–9 min/turn — unusable; Gemini and Nemotron were tried and dropped earlier. Operational note: after switching the brain provider you must `/new` the Telegram session — a session persisted under the old brain replays old-format tool-call IDs that Mistral rejects.)*
 
 | Subpackage (`src/cvflow/`) | Responsibility | Goals |
 |---|---|---|
 | `config.py` | load & validate `config.yaml` | — |
 | `statemachine/` | application status state machine — **the un-bypassable review gate** | 4 |
 | `storage/` | SQLite tracking store + `form_fields.json` loader (populated vs empty keys) | 9 |
-| `llm/` | thin client for the tailoring escalation to Gemini (the brain itself is configured in Hermes) | 3 |
+| `llm/` | thin OpenAI-compatible client (`NimProvider`) for Mistral (brain/distill/fit/analyze) + Cerebras (tailoring/essays/drops); the Hermes agent brain is configured in `~/.hermes/config.yaml` | 3 |
 | `discovery/` | JobSpy multi-board search + cross-day dedup + LLM ranking → top 5–10 | 1 |
 | `analysis/` | fetch & parse full JD (skills, quals, seniority, tone, applicant instructions) | 2 |
 | `resume/` | tailor modular LaTeX per job, compile PDF, generate plain-language diff vs master | 3,4 |
@@ -46,7 +46,7 @@ Hermes supplies messaging (Telegram), scheduling, the heartbeat, and the browser
 
 ## Tech stack
 
-Python 3.11+ · **Hermes Agent** (runtime: Telegram + scheduling + browser + LLM routing) · NVIDIA NIM `llama-3.3-70b-instruct` brain + Gemini 2.5 Flash (tailoring) · SQLite · JobSpy · Playwright · modular LaTeX + TeX Live · systemd · Fernet. Rationale for each choice is in the build plan.
+Python 3.11+ · **Hermes Agent** (runtime: Telegram + scheduling + browser + LLM routing) · **Mistral `mistral-small-2506`** brain (also distill/fit/analyze/learn) + **Cerebras `gpt-oss-120b`** (tailoring/essays/drops) — both free-tier, NIM/Gemini removed · SQLite · JobSpy + Naukri nkparam · Playwright · modular LaTeX + Tectonic · systemd · Fernet. Rationale for each choice is in the build plan.
 
 ## Commands
 

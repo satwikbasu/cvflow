@@ -1,7 +1,11 @@
 model:
-  default: meta/llama-3.3-70b-instruct
-  provider: nvidia
-  base_url: https://integrate.api.nvidia.com/v1
+  # Brain = Mistral mistral-small-2506 (free tier, ~300 RPM / 2.25M TPM, 128k ctx, native
+  # tool-calling, ~0.4s/call). Replaced NVIDIA NIM llama-3.3-70b, whose free-tier latency hit
+  # 2–9 min/turn. provider MUST be `custom` (there is no `mistral` provider value); Hermes derives
+  # MISTRAL_API_KEY from the api.mistral.ai host. Key goes in ~/.hermes/.env as MISTRAL_API_KEY.
+  default: mistral-small-2506
+  provider: custom
+  base_url: https://api.mistral.ai/v1
 mcp_servers:
   cvflow:
     command: /home/ubuntu/cvflow/.venv/bin/python
@@ -22,7 +26,7 @@ agent:
   restart_drain_timeout: 180
   api_max_retries: 3
   service_tier: ''
-  tool_use_enforcement: force  # NIM/llama needs native tool_calls; 'auto' leaks raw JSON tool calls to chat + double-calls
+  tool_use_enforcement: force  # native tool_calls; 'auto' lets weaker models leak raw JSON tool calls + double-call. Works with Mistral on a CLEAN session — after switching the brain provider you MUST send /new (a session persisted under the old brain replays old-format tool_call ids and Mistral 400s on them).
   task_completion_guidance: true
   environment_probe: true
   environment_hint: ''

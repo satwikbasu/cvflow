@@ -11,18 +11,18 @@ See **[CLAUDE.md](CLAUDE.md)** for the full goals, tech stack, architecture, and
 ## Architecture
 **Hermes Agent** (Nous Research, self-hosted) is the always-on substrate — it provides the Telegram interface, scheduling, the LLM brain, and the browser runtime. cvflow supplies **deterministic domain skills** that Hermes calls over a local **stdio MCP server** (`src/cvflow/mcp/`): discovery, JD analysis, resume tailoring, storage, and the approval gate.
 
-- **Brain:** `meta/llama-3.3-70b-instruct` on the NVIDIA NIM free tier; resume tailoring escalates to Gemini 2.5 Flash.
+- **Brain:** **Mistral `mistral-small-2506`** (free tier; fast, native tool-calling), configured in `~/.hermes/config.yaml` (`provider: custom`, `base_url: https://api.mistral.ai/v1`, `MISTRAL_API_KEY` in `~/.hermes/.env`). Mistral also runs discovery distill/fit + `analyze_jd`/`learn`; **Cerebras `gpt-oss-120b`** does résumé tailoring, essays, and drop-summaries. (NVIDIA NIM and Gemini were removed — NIM's free-tier latency hit minutes/turn.)
 - **The approval gate is deterministic code, not a convention.** The MCP surface exposes `request_review` and `submit` (which asserts `status == approved` and raises otherwise) but **no `approve` tool** — only the human Telegram approval callback can reach `statemachine.approve()`. The agent can *call* the gate but can never *satisfy* it.
 - **Facts come only from `profile/`** — unanswerable fields trigger a clarification loop, never a guess. Nothing fails silently.
 
 ## Status
-Implemented and operating on the EC2 host via Hermes; **Phases 0–11 + 13 + 14 complete** (251 tests, `ruff` + `mypy --strict` clean). 12 MCP tools live (no `approve` — the gate is human-only), plus deterministic slash commands off the agent loop: `/apply`·`/skip` (the gate) and `/discover` (manual discovery trigger). **Phase 12 (assisted-apply hardening + end-to-end dry run) is the last build item.**
+Implemented and operating on the EC2 host via Hermes; **Phases 0–11 + 13 + 14 complete** (282 tests, `ruff` + `mypy --strict` clean). 12 MCP tools live (no `approve` — the gate is human-only), plus deterministic slash commands off the agent loop: `/apply`·`/skip` (the gate) and `/discover` (manual discovery trigger). **Phase 12 is superseded by the [Phase-1 personal-hardening plan](docs/superpowers/plans/2026-06-10-phase-1-personal-hardening.md)** — shipped so far: **P1A** (config-derived, restart-proof cron via `systemd-run --user`), **P1B** (chat gets a friendly digest summary; full digest + drops retained to `logs/discover/`), the **Mistral brain switch** (NIM dropped for latency), and MCP/gate fixes (compact paginated `list_applications`/`get_application`, gate DB-path fix). Next up: 1C–1F.
 
 | ✓ | Phase | Delivers |
 |---|---|---|
 | ✅ | 0 Foundations | config loading, logging, test/lint/type harness |
 | ✅ | 1 Storage + state machine | SQLite tracking store + the un-bypassable approval gate |
-| ✅ | 2 LLM layer | Gemini tailoring client (RPD tracking + cache) |
+| ✅ | 2 LLM layer | OpenAI-compatible client — Mistral (brain/distill/fit/analyze) + Cerebras (tailoring/essays/drops) |
 | ✅ | 3 Knowledge base | `profile/**` + `form_fields.json` loader |
 | ✅ | 4 Discovery | JobSpy search → dedup → LLM ranking → top-N (+ salary filter) |
 | ✅ | 5 JD analysis | fetch JD → extract skills/quals/seniority/tone/applicant-instructions |
@@ -73,20 +73,25 @@ tracked under **[`artifacts/`](artifacts/README.md)**. Real secrets never enter 
 4. **Restore the Hermes runtime** from the tracked artifacts:
    ```bash
    cp artifacts/hermes/hermes-config.yaml ~/.hermes/config.yaml
-   cp artifacts/hermes/hermes-env.template ~/.hermes/.env   # fill the secrets you use:
-   #   NVIDIA_API_KEY (the brain — this is the key that matters, NOT cvflow's config.yaml),
-   #   TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USERS, Gemini/Google key, …
+   cp artifacts/hermes/SOUL.md            ~/.hermes/SOUL.md     # brain persona + the URL-verbatim rule
+   cp artifacts/hermes/hermes-env.template ~/.hermes/.env       # fill the secrets you use:
+   #   MISTRAL_API_KEY (the BRAIN — same value as cvflow's config.yaml llm.distillation.api_key),
+   #   TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USERS, …
    chmod 600 ~/.hermes/.env
    # adjust absolute paths in hermes-config.yaml if the repo isn't at /home/ubuntu/cvflow
    ```
-   **Two `.env` / config gotchas that silently break a fresh box:**
+   The brain is **Mistral `mistral-small-2506`** (`model.provider: custom`, `base_url:
+   https://api.mistral.ai/v1`); Hermes derives `MISTRAL_API_KEY` from the host. **Three gotchas
+   that silently break a fresh box:**
    - **Never leave a numeric var present-but-empty** (e.g. `TERMINAL_TIMEOUT=`,
      `BROWSER_SESSION_TIMEOUT=`). Hermes does `int("")` on them and the gateway crashes at
-     startup. Either give a value or **comment the line out** (the shipped template already
-     comments the known numeric ones — keep them that way).
-   - `agent.tool_use_enforcement: **force**` in `hermes-config.yaml` is required for the
-     NIM/llama brain to use native tool-calls. With `auto`, the bot leaks raw
-     `{"name":…}` tool-call JSON into the chat and double-calls tools. (Shipped as `force`.)
+     startup. Either give a value or **comment the line out** (the shipped template already does).
+   - `agent.tool_use_enforcement: **force**` is required so the brain emits native tool-calls
+     (with `auto`, weaker models leak raw `{"name":…}` JSON + double-call). Shipped as `force`;
+     it works with Mistral on a **clean** session.
+   - **After any brain-provider change, send `/new` in Telegram.** A session persisted under the
+     old brain replays old-format tool-call IDs that Mistral rejects (`Tool call id … length 9`),
+     so every turn 400s until you start a fresh session.
 5. **Install the command hooks + plugins** (the deterministic slash commands that run *outside*
    the brain: the `/apply`/`/skip` approval gate and the manual `/discover` trigger):
    ```bash
@@ -105,11 +110,12 @@ tracked under **[`artifacts/`](artifacts/README.md)**. Real secrets never enter 
    sudo systemctl daemon-reload && sudo systemctl enable --now hermes-gateway
    ```
 7. **Verify the wiring.** Paste the prompt in **[`docs/HANDOFF.md`](docs/HANDOFF.md)** into a
-   Claude Code session on the box — it checks the brain is actually routing through NVIDIA NIM
+   Claude Code session on the box — it checks the brain is actually routing through Mistral
    (the #1 fresh-box failure), the gateway/MCP registration (12 tools, no `approve`), and the
    suite. Quick manual check: `hermes mcp test cvflow` → 12 tools; from the authorized Telegram
-   chat send `mcp_cvflow_ping` → `{"status":"ok","service":"cvflow"}`. Then `/discover` →
-   `🔎 Discovery started …` and `/apply <id>` on a pending-review job → `✅ Approved …`.
+   chat send `/new` then `give me the cvflow status report` → it calls `mcp_cvflow_status_report`
+   and replies in seconds (not minutes). Then `/discover` → `🔎 Discovery started …` and
+   `/apply <id>` on a pending-review job → `✅ Approved …`.
 8. **Personalize to your own profile** (optional, when ready): follow
    **[`docs/onboarding-new-candidate.md`](docs/onboarding-new-candidate.md)** to regenerate the
    `profile/` knowledge base, `candidate_skills.yaml`, the résumé, and the `config.yaml`

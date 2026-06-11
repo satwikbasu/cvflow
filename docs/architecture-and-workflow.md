@@ -28,8 +28,9 @@ Agent runtime** that calls them. Understanding the split is the key to the whole
 
 ### Hermes owns (the "substrate")
 - **The Telegram interface** — inbound messages and outbound `hermes send`.
-- **The LLM brain** — `meta/llama-3.3-70b-instruct` (NVIDIA NIM), configured in
-  `~/.hermes/config.yaml` (`model.default`). This is what reads the user's chat messages,
+- **The LLM brain** — **Mistral `mistral-small-2506`** (`provider: custom`,
+  `base_url: https://api.mistral.ai/v1`), configured in `~/.hermes/config.yaml` (`model.default`;
+  key `MISTRAL_API_KEY` in `~/.hermes/.env`). This is what reads the user's chat messages,
   decides which tools to call, and writes conversational replies.
 - **The MCP client** — Hermes spawns cvflow's MCP server as a subprocess and exposes its 12
   tools to the brain.
@@ -78,7 +79,7 @@ allowed to make alone.
   │ "/skip 3"   → command:skip hook  (gateway, OUTSIDE brain)              │
   │             → cvflow.gate → store.set_status(SKIPPED)                  │
   │ natural-language "tailor #1 for me" → brain calls MCP tools:          │
-  │   analyze_jd(job) [NIM] → request_review(job):                        │
+  │   analyze_jd(job) [Mistral] → request_review(job):                    │
   │     status discovered→pending_review, tailor résumé [Cerebras],       │
   │     compile PDF [Tectonic], send PDF + plain-language diff            │
   │ "/apply 1"  → command:apply hook (gateway, OUTSIDE brain)             │
@@ -216,7 +217,7 @@ wrapper — is being designed separately.)
 
 ---
 
-## 8. The LLM providers (4 roles, 3 vendors, all free-tier)
+## 8. The LLM providers (2 vendors, all free-tier — NIM removed 2026-06-11)
 
 All providers are OpenAI-compatible and go through one client class, `llm.NimProvider`
 (`POST /chat/completions`). The vendor differences (`random_seed` vs `seed`, browser
@@ -224,15 +225,22 @@ User-Agent for Cerebras/Cloudflare, json_schema support) are handled inside it.
 
 | Role | Vendor / model | Where it's used in code | Why this one |
 |---|---|---|---|
-| **Brain** | NVIDIA NIM `meta/llama-3.3-70b-instruct` | Hermes agent loop (all chat + tool-calling); cvflow `analyze_jd` (`JDAnalyzer`) | Fast, non-reasoning, good tool-calling, 128k ctx, ~40 RPM, no hard daily cap |
+| **Brain** | Mistral `mistral-small-2506` | Hermes agent loop (all chat + tool-calling); cvflow `analyze_jd` + weekly `learn` | Only free vendor with agent-grade limits (~300 RPM / 2.25M TPM, 128k ctx); native tool-calling, ~0.4s/call |
 | **Distillation** | Mistral `mistral-small-2506` | `discovery/distill.py` (JD → Crux) | Strict `json_schema`, very high TPM, 5 RPS |
-| **Fit ranking** | Mistral `mistral-small-2506` | `discovery/benchmark.py::fit_scores` | Needs a per-job JSON **array**; NIM can't emit it reliably |
-| **Tailoring** | Cerebras `gpt-oss-120b` | `resume/` (plan + diff), `essays/` (compose), `automation/` (form free-text) | High quality, 65k ctx, low volume |
+| **Fit ranking** | Mistral `mistral-small-2506` | `discovery/benchmark.py::fit_scores` | Needs a per-job JSON **array** |
+| **Tailoring / essays / drops** | Cerebras `gpt-oss-120b` | `resume/`, `essays/`, `automation/` (free-text), discover drop-summary | High quality, 65k ctx; low volume fits the tight 5 RPM / 2400-RPD free tier |
+
+**Why NIM was dropped (2026-06-11):** the brain was NVIDIA NIM `llama-3.3-70b`, but its free-tier
+latency swung to 2–9 min/turn (provider queuing) — unusable for an interactive agent. Mistral
+(already the distiller) is fast and a strong native tool-caller, so it took the brain too. Cerebras
+can't be the brain (5 RPM / 30k TPM / 2400 RPD kills an agent loop) — it stays on low-volume work.
+**Gotcha:** switching the Hermes brain provider poisons any persisted session (old-format tool-call
+IDs replayed → Mistral 400s); send `/new` after a swap. `tool_use_enforcement` stays `force`.
 
 **Important accuracy notes:**
 - The `llm.brain` provider object *is* constructed and passed into `DiscoveryService`, but
-  discovery's fit call uses the **distillation** provider (Mistral), not the brain. The brain's
-  only cvflow use is `analyze_jd`.
+  discovery's fit call uses the **distillation** provider (both Mistral now). The brain's cvflow
+  uses are `analyze_jd` and `learn`.
 - **Gemini is no longer wired.** `llm/__init__.py` still contains a `GeminiProvider` class, but
   `build_tools` and `cron._build` construct `NimProvider` for all three config blocks, and
   `config.example.yaml` sets `tailoring.provider: cerebras`. The README's "tailoring escalates to
@@ -246,12 +254,14 @@ User-Agent for Cerebras/Cloudflare, json_schema support) are handled inside it.
 ## 9. How Hermes fits — and what is deliberately disabled
 
 `~/.hermes/config.yaml` highlights:
-- `model.default: meta/llama-3.3-70b-instruct`, `provider: nvidia` — the brain. The real key
-  lives in `~/.hermes/.env` (`NVIDIA_API_KEY`), **not** cvflow's `config.yaml`.
+- `model.default: mistral-small-2506`, `provider: custom`, `base_url: https://api.mistral.ai/v1`
+  — the brain. Hermes derives `MISTRAL_API_KEY` from the host; the key lives in `~/.hermes/.env`,
+  **not** cvflow's `config.yaml`. (`SOUL.md` carries the URL-verbatim rule.)
 - `mcp_servers.cvflow` — spawns `python -m cvflow.mcp` (cwd `/home/ubuntu/cvflow`) with the
   12-tool `tools.include` allowlist.
-- `agent.tool_use_enforcement: force` — required so the NIM/llama brain emits native tool-calls
-  (with `auto` it leaks raw JSON into chat and double-calls).
+- `agent.tool_use_enforcement: force` — native tool-calls (with `auto`, weaker models leak raw
+  JSON + double-call). Works with Mistral on a clean session; **`/new` after a brain-provider swap**
+  (a persisted session replays old-format tool-call IDs and Mistral 400s on them).
 - `agent.disabled_toolsets: [browser, computer_use, image_gen, tts, vision, session_search,
   cronjob, delegation, code_execution]` — **the browser/computer_use disablement is a safety
   decision**: if the agent could drive a browser itself, it could submit an application around

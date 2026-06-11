@@ -53,7 +53,7 @@ python -m cvflow.cron discover
 - Any uncaught exception is caught at the top of `main`, reported to the user via Telegram,
   then re-raised — a cron crash never dies quietly.
 
-The agent "brain" (NIM llama-3.3-70b) is **not** involved in discovery. Discovery runs as a
+The agent "brain" (Mistral `mistral-small-2506`) is **not** involved in discovery. Discovery runs as a
 plain deterministic job; the brain only enters later, when the user replies to select or
 approve. `_build` constructs a minimal service set (no browser/automator): the store, the
 knowledge base, the Mistral distiller, the candidate fingerprint, the curated skill set,
@@ -311,7 +311,7 @@ Consequences and the operational posture:
 |---|---|---|
 | **Distillation** (JD → `Crux`) | **Mistral `mistral-small-2506`** | strict `json_schema`, 2.25M TPM, 5 RPS |
 | **Fit ranking** (per cohort) | **Mistral `mistral-small-2506`** | needs a per-job JSON *array*; NIM can't emit it |
-| **JD analysis** (`analyze_jd`, post-`/apply`) | **NIM `meta/llama-3.3-70b-instruct`** | free-form text, big ctx, no daily cap |
+| **JD analysis** (`analyze_jd`, post-`/apply`) | **Mistral `mistral-small-2506`** (`config.llm.brain`) | free-form text, big ctx, fast (NIM dropped 2026-06-11) |
 | **Résumé tailoring** (post-`/apply`) | **Cerebras `gpt-oss-120b`** | high quality, 65k ctx, low volume |
 
 All four are OpenAI-compatible (`POST /chat/completions`) behind one `NimProvider` client;

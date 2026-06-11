@@ -15,7 +15,7 @@ system is recoverable beyond a plain `git clone`.
 
 | File | What it is | Secrets? |
 |---|---|---|
-| `hermes-config.yaml` | Snapshot of `~/.hermes/config.yaml`. Holds the cvflow MCP-server wiring (`mcp_servers.cvflow`), the `disabled_toolsets` latency trim, the NIM brain config, and `telegram.allowed_chats`. | None. Every `api_key` field is empty (keys come from `.env`); `record_key: ctrl+b` is a voice keybind, not a credential. Contains the authorized Telegram chat ID (PII, intentionally fine in this private repo). |
+| `hermes-config.yaml` | Snapshot of `~/.hermes/config.yaml`. Holds the cvflow MCP-server wiring (`mcp_servers.cvflow`), the `disabled_toolsets` latency trim, the **Mistral brain config** (`model.default: mistral-small-2506`, `provider: custom`), and `telegram.allowed_chats`. | None. Every `api_key` field is empty (keys come from `.env`); `record_key: ctrl+b` is a voice keybind, not a credential. Contains the authorized Telegram chat ID (PII, intentionally fine in this private repo). |
 | `hermes-env.template` | Every variable **name** from `~/.hermes/.env` with **values stripped**. The shape of the secret set to fill on a new box. | None — names only, all values blank. |
 | `hermes-gateway.service` | The systemd unit running the gateway (`/etc/systemd/system/hermes-gateway.service`). Auto-restart, runs as `ubuntu`. | None. |
 | `SOUL.md` | Hermes agent persona/identity file. | None. |
@@ -40,8 +40,9 @@ system is recoverable beyond a plain `git clone`.
 4. **Restore the Hermes config:**
    ```bash
    cp artifacts/hermes/hermes-config.yaml ~/.hermes/config.yaml
+   cp artifacts/hermes/SOUL.md            ~/.hermes/SOUL.md     # brain persona + URL-verbatim rule
    cp artifacts/hermes/hermes-env.template ~/.hermes/.env   # then fill EVERY real value:
-   #   NVIDIA_API_KEY, TELEGRAM_BOT_TOKEN, GEMINI/Google key, etc.
+   #   MISTRAL_API_KEY (the brain), TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USERS, etc.
    chmod 600 ~/.hermes/.env
    ```
    Adjust absolute paths in `hermes-config.yaml` (`mcp_servers.cvflow.command`/`cwd`)
@@ -71,7 +72,7 @@ system is recoverable beyond a plain `git clone`.
 
 ## Deliberately NOT tracked (secrets / runtime state)
 
-- `~/.hermes/.env` (real values) — the only secret store: NIM + Telegram + Gemini keys.
+- `~/.hermes/.env` (real values) — the only secret store: `MISTRAL_API_KEY` (the brain) + Telegram keys.
 - cvflow `config.yaml` — gitignored; reproduce from `config.example.yaml` + secrets.
 - `data/` (SQLite tracking DB, generated PDFs), `logs/` — runtime state, regenerated.
 - Fernet key, OAuth tokens, browser `storage_state`, `~/.hermes/auth.json`, sessions.

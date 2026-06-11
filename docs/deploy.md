@@ -12,10 +12,20 @@ sudo systemctl restart hermes-gateway  # after editing ~/.hermes/config.yaml
 ```
 
 ## Secrets / config (never committed)
-`config.yaml` (repo root) + `~/.hermes/.env` hold the tokens. Required: `telegram.bot_token`,
-`telegram.authorized_user_id`, `llm.brain.api_key` (NVIDIA NIM `nvapi-…`), `llm.tailoring.api_key`
-(Gemini `AIza…`). `chmod 600 config.yaml`. The Fernet key (`security.fernet_key_path`, default
-`data/.fernet_key`) is auto-created `chmod 600` on first run.
+`config.yaml` (repo root) + `~/.hermes/.env` hold the tokens. Required in `config.yaml`:
+`telegram.bot_token`, `telegram.authorized_user_id`, and the LLM keys —
+`llm.brain.api_key` + `llm.distillation.api_key` (both **Mistral**, `console.mistral.ai`, same key)
+and `llm.tailoring.api_key` (**Cerebras**, `cloud.cerebras.ai`, `csk-…`). `chmod 600 config.yaml`.
+The Fernet key (`security.fernet_key_path`, default `data/.fernet_key`) is auto-created `chmod 600`
+on first run.
+
+**The Hermes brain is Mistral** (`~/.hermes/config.yaml` → `model.default: mistral-small-2506`,
+`provider: custom`, `base_url: https://api.mistral.ai/v1`). Its key is `MISTRAL_API_KEY` in
+`~/.hermes/.env` (Hermes derives it from the `api.mistral.ai` host) — use the same value as
+`config.yaml`'s Mistral key. Copy `artifacts/hermes/SOUL.md` → `~/.hermes/SOUL.md` (the persona +
+the URL-verbatim rule that stops the brain mangling long job URLs). **After switching the brain
+provider, `/new` in Telegram** or every turn 400s on replayed old-format tool-call IDs.
+(NVIDIA NIM was the brain until 2026-06-11 — dropped for 2–9 min free-tier latency.)
 
 ## MCP tool allowlist
 `~/.hermes/config.yaml` → `mcp_servers.cvflow.tools.include` must list all 12 cvflow tools:
