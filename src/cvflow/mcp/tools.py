@@ -83,11 +83,16 @@ class CvflowTools:
     def list_applications(
         self, status: str, limit: int = 10, offset: int = 0
     ) -> dict[str, Any]:
-        """Return a compact, paginated view of applications with the given status.
+        """List / show the user's job applications in a given status. USE THIS whenever
+        asked to list, show, or see jobs or applications — e.g. "list the discovered jobs",
+        "show my applications", "what jobs are pending review", "any approved jobs?".
 
-        Only minimal per-job fields (job_id/company/role) so the brain's context and
-        reply stay small — a full 60+ job dump blows the model's output budget. ``total``
-        + ``next_offset`` let the caller page ("show the next 10" → call with that offset).
+        ``status`` must be one of: discovered, pending_review, approved, applied,
+        otp_timeout, skipped, failed (the digest's new jobs are ``discovered``).
+
+        Returns a compact, paginated view — minimal per-job fields (job_id/company/role) so a
+        60+ job list doesn't blow the reply budget. Default 10 per page; ``total`` +
+        ``next_offset`` let you page ("show the next 10" → call again with offset=next_offset).
         """
         apps = self._store.list_by_status(Status(status))
         total = len(apps)
