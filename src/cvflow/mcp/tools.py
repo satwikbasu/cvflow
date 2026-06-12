@@ -111,10 +111,15 @@ class CvflowTools:
         }
 
     def get_application(self, job_id: str) -> dict[str, Any] | None:
-        """Return a compact application view, or None if not found.
+        """Get / show the full details of ONE specific job application — its status, the JD
+        URL/link, company, role, and dates. USE THIS when asked for the details, info, link,
+        or status of a particular job (e.g. "details for the Rarr Technologies role", "show me
+        the Django backend job", "what's the link for that application?").
 
-        Drops the always-null proof/OTP internals so the payload stays small and the JD
-        URL stays prominent — a long noisy record made the brain mangle the URL.
+        Identified by ``job_id`` (e.g. "naukri:080626501910"). If you only know the company or
+        role NAME, first call ``list_applications`` to find the matching ``job_id``, then pass
+        it here. Returns a compact record (drops always-null proof/OTP internals); None if not
+        found.
         """
         app = self._store.get(job_id)
         if app is None:
