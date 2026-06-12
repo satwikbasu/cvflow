@@ -130,6 +130,7 @@ def _now_seconds() -> float:
 
 
 def _urllib_post(url: str, headers: dict[str, str], body: str) -> str:
+    from urllib.error import HTTPError, URLError
     from urllib.request import Request, urlopen
 
     # Some OpenAI-compatible hosts (e.g. Cerebras behind Cloudflare) reject the default
@@ -138,11 +139,19 @@ def _urllib_post(url: str, headers: dict[str, str], body: str) -> str:
     req = Request(url, data=body.encode(), headers=headers, method="POST")
     # NIM free-tier latency can swing past two minutes for a whole-cohort fit call;
     # give it room. The cron path has no agent limit, and RPM still guards volume.
-    with urlopen(req, timeout=300) as resp:  # noqa: S310 (https by config)
-        if resp.status != 200:
-            raise LLMError(f"NIM POST {url} -> HTTP {resp.status}")
-        raw: bytes = resp.read()
-        return raw.decode("utf-8", errors="replace")
+    try:
+        with urlopen(req, timeout=300) as resp:  # noqa: S310 (https by config)
+            if resp.status != 200:
+                raise LLMError(f"NIM POST {url} -> HTTP {resp.status}")
+            raw: bytes = resp.read()
+            return raw.decode("utf-8", errors="replace")
+    except HTTPError as exc:
+        # urlopen raises on 4xx/5xx (e.g. a missing/invalid key → 401) before the status
+        # check above. Wrap as LLMError so callers' `except LLMError` degrades gracefully
+        # instead of a raw HTTPError crashing the job.
+        raise LLMError(f"NIM POST {url} -> HTTP {exc.code}: {exc.reason}") from exc
+    except URLError as exc:
+        raise LLMError(f"NIM POST {url} failed: {exc.reason}") from exc
 
 
 class NimProvider:

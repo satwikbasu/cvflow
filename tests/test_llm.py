@@ -181,3 +181,21 @@ def test_urllib_post_sends_user_agent_header():
     from cvflow.llm import _urllib_post
     src = inspect.getsource(_urllib_post)
     assert "User-Agent" in src
+
+
+def test_urllib_post_wraps_http_error_as_llmerror(monkeypatch):
+    # A 401 (e.g. a missing/invalid Cerebras key) must surface as LLMError so callers'
+    # `except LLMError` degrades gracefully — never a raw HTTPError crashing the job.
+    import urllib.error
+    import urllib.request
+
+    from cvflow.llm import LLMError, _urllib_post
+
+    def boom(req, timeout=300):
+        raise urllib.error.HTTPError(req.full_url, 401, "Unauthorized", {}, None)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(urllib.request, "urlopen", boom)
+    with pytest.raises(LLMError) as ei:
+        _urllib_post("https://api.cerebras.ai/v1/chat/completions",
+                     {"Authorization": "Bearer bad"}, "{}")
+    assert "401" in str(ei.value)
