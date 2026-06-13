@@ -44,6 +44,8 @@ class CvflowTools:
         tailor: Any,
         output_dir: str = "data/tailored",
         essay_provider: Any = None,
+        use_jd_analysis: bool = False,
+        notify: Any = None,
     ) -> None:
         self._store = store
         self._knowledge = knowledge
@@ -52,6 +54,8 @@ class CvflowTools:
         self._tailor = tailor
         self._output_dir = output_dir
         self._essay_provider = essay_provider
+        self._use_jd_analysis = use_jd_analysis
+        self._notify = notify
 
     # ------------------------------------------------------------------
     # Health
@@ -128,21 +132,26 @@ class CvflowTools:
     # ------------------------------------------------------------------
 
     def request_review(self, job_id: str, *, feedback: str | None = None) -> dict[str, Any]:
-        """Move to PENDING_REVIEW, tailor + compile the PDF, return the review payload.
+        """Tailor + compile the PDF, then move to PENDING_REVIEW. Never approves.
 
-        Prepares the review; it never approves. Approval is the human /approve
-        command handled out-of-band by cvflow.gate.
+        Builds the JDAnalysis from the cached crux (default) or the stored JD text, per
+        config.resume.use_jd_analysis. Status flips only AFTER a successful compile, so a
+        tailoring failure never orphans the job in pending_review. Approval is the human
+        /apply command handled out-of-band by cvflow.gate.
         """
+        from cvflow.analysis import resolve_tailoring_analysis
+
         app = self._store.get(job_id)
         if app is None:
             raise UnknownJob(job_id)
-        if app.status is Status.DISCOVERED:
-            self._store.set_status(job_id, Status.PENDING_REVIEW)
-        analysis = self._store.get_analysis(job_id)
-        if analysis is None:
-            raise UnknownJob(f"no JD analysis for {job_id}; run analyze_jd first")
+        analysis = resolve_tailoring_analysis(
+            job_id, store=self._store, analyzer=self._analyzer,
+            use_jd_analysis=self._use_jd_analysis, notify=self._notify,
+        )
         plan = self._tailor.plan(analysis, feedback=feedback)
         pdf = self._tailor.compile_tailored(plan, self._output_dir)
+        if app.status is Status.DISCOVERED:
+            self._store.set_status(job_id, Status.PENDING_REVIEW)
         self._store.set_tailored_pdf(job_id, str(pdf))
         return {
             "job_id": job_id,
@@ -214,6 +223,7 @@ def build_tools(config: Any) -> CvflowTools:
 
     from cvflow.knowledge import KnowledgeBase
     from cvflow.llm import NimProvider
+    from cvflow.notify import HermesNotifier
     from cvflow.resume import ResumeTailor, parse_master
     from cvflow.storage import ApplicationStore
 
@@ -284,4 +294,6 @@ def build_tools(config: Any) -> CvflowTools:
         tailor=tailor,
         output_dir=config.resume.output_dir,
         essay_provider=tailoring,
+        use_jd_analysis=config.resume.use_jd_analysis,
+        notify=HermesNotifier(),
     )

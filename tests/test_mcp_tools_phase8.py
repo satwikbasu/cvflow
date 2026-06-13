@@ -1,4 +1,3 @@
-from cvflow.analysis import JDAnalysis
 from cvflow.mcp.tools import TOOL_NAMES, CvflowTools
 from cvflow.statemachine import Status
 from cvflow.storage import ApplicationStore
@@ -33,15 +32,11 @@ def _tools(tmp_path, status=Status.PENDING_REVIEW):
     store.add("j1", "Acme", "Engineer", "http://jd")
     if status is not Status.DISCOVERED:
         store.set_status("j1", Status.PENDING_REVIEW)
-    store.save_analysis(
+    import json
+
+    store.save_crux(
         "j1",
-        JDAnalysis(
-            required_skills=["python"],
-            preferred_quals=[],
-            seniority="mid",
-            tone="neutral",
-            applicant_instructions=[],
-        ),
+        json.dumps({"must_have_skills": ["python"], "seniority_signal": "mid"}),
     )
     t = CvflowTools(
         store=store,

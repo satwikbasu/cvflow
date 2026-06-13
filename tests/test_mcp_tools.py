@@ -112,8 +112,6 @@ def _store_with_job():
 
 
 def test_request_review_moves_to_pending_review(tmp_path):
-    from cvflow.analysis import JDAnalysis
-
     class _FakeTailor:
         def plan(self, jd, *, feedback=None):
             return "PLAN"
@@ -129,13 +127,12 @@ def test_request_review_moves_to_pending_review(tmp_path):
             p.write_bytes(b"%PDF-1.5")
             return p
 
+    import json
+
     store = _store_with_job()
-    store.save_analysis(
+    store.save_crux(
         "indeed:9",
-        JDAnalysis(
-            required_skills=["python"], preferred_quals=[], seniority="mid",
-            tone="neutral", applicant_instructions=[],
-        ),
+        json.dumps({"must_have_skills": ["python"], "seniority_signal": "mid"}),
     )
     tools = CvflowTools(
         store=store, knowledge=None, discovery=None, analyzer=None,
@@ -143,6 +140,68 @@ def test_request_review_moves_to_pending_review(tmp_path):
     )
     tools.request_review("indeed:9")
     assert store.get("indeed:9").status == Status.PENDING_REVIEW
+
+
+def _crux_tools(tmp_path, *, failing=False):
+    """A CvflowTools with a DISCOVERED job carrying a crux (no jd_analyses row).
+
+    use_jd_analysis=False so resolve_tailoring_analysis takes the crux path
+    (no analyzer/fetch). Returns (tools, store).
+    """
+    import json
+
+    store = _store_with_job()  # adds DISCOVERED "indeed:9"
+    store.save_crux(
+        "indeed:9",
+        json.dumps({
+            "must_have_skills": ["python"],
+            "tech_stack": ["python", "aws"],
+            "seniority_signal": "mid",
+            "applicant_instructions": [],
+        }),
+    )
+
+    class _FakeTailor:
+        def plan(self, analysis, *, feedback=None):
+            if failing:
+                raise RuntimeError("tailoring blew up")
+            return "PLAN"
+
+        def diff(self, plan):
+            return "diff"
+
+        def compile_tailored(self, plan, outdir):
+            from pathlib import Path
+
+            p = Path(outdir) / "_tailored.pdf"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(b"%PDF-1.5")
+            return p
+
+    tools = CvflowTools(
+        store=store, knowledge=None, discovery=None, analyzer=None,
+        tailor=_FakeTailor(), output_dir=str(tmp_path), use_jd_analysis=False,
+    )
+    return tools, store
+
+
+def test_request_review_tailors_via_crux_without_analysis(tmp_path):
+    tools, store = _crux_tools(tmp_path)
+    out = tools.request_review("indeed:9")
+    assert out["status"] == "pending_review"
+    assert out["pdf_path"].endswith(".pdf")
+    assert store.get("indeed:9").status.value == "pending_review"
+    # The seeded crux (must_have_skills + tech_stack) drove the analysis payload.
+    assert out["analysis_summary"]["required_skills"] == ["python", "aws"]
+
+
+def test_request_review_does_not_orphan_status_on_failure(tmp_path):
+    import pytest
+
+    tools, store = _crux_tools(tmp_path, failing=True)
+    with pytest.raises(RuntimeError):
+        tools.request_review("indeed:9")
+    assert store.get("indeed:9").status.value == "discovered"
 
 
 def test_cvflowtools_has_no_approve_method():
