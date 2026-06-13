@@ -1,0 +1,120 @@
+"""Hermes command hook: routes /tailor to cvflow's deterministic single-job tailoring trigger.
+
+Runs in the gateway process, OUTSIDE the agent loop. Resolves ONE ordinal and spawns a detached
+``python -m cvflow.cron tailor <job_id>`` in a transient *user* systemd unit (like /discover), then
+acks instantly; the detached run posts the PDF + diff via HermesNotifier (no gateway, no LLM).
+Unauthorized users -> {} (fall through). This is a *trigger*, never an approval — the approval-gate
+invariant is untouched.
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+import time
+from typing import Any
+
+
+def _repo_root() -> str:
+    return os.environ.get("CVFLOW_ROOT", os.path.expanduser("~/cvflow"))
+
+
+def _ensure_import() -> None:
+    root_src = os.path.join(_repo_root(), "src")
+    if root_src not in sys.path:
+        sys.path.insert(0, root_src)
+
+
+def _build_store():
+    _ensure_import()
+    from cvflow.config import load_config
+    from cvflow.storage import ApplicationStore
+
+    root = _repo_root()
+    cfg = load_config(os.path.join(root, "config.yaml"))
+    db_path = cfg.storage.db_path
+    if not os.path.isabs(db_path):
+        db_path = os.path.join(root, db_path)
+    return ApplicationStore(db_path)
+
+
+def _authorized_user_id():
+    _ensure_import()
+    from cvflow.config import load_config
+
+    cfg = load_config(os.path.join(_repo_root(), "config.yaml"))
+    return cfg.telegram.authorized_user_id
+
+
+def _lock_path() -> str:
+    return os.path.join(_repo_root(), "data", "tailor.lock")
+
+
+def _is_locked() -> bool:
+    _ensure_import()
+    from cvflow.runlock import is_locked
+
+    return is_locked(_lock_path())
+
+
+def _spawn(job_id: str) -> None:
+    root = _repo_root()
+    python = os.path.join(root, ".venv", "bin", "python")
+    os.makedirs(os.path.join(root, "data"), exist_ok=True)
+    ts = int(time.time())
+    log_path = os.path.join(root, "data", f"tailor-{ts}.log")
+
+    # Run tailoring in a transient *user* systemd unit so it lives in user@.service's cgroup,
+    # NOT the gateway's. `systemctl restart hermes-gateway` SIGKILLs the gateway cgroup
+    # (KillMode=mixed); a user unit survives that. Requires lingering once per box:
+    # `loginctl enable-linger`.
+    uid = os.getuid()
+    env = dict(os.environ)
+    env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{uid}")
+    env.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path=/run/user/{uid}/bus")
+    inner = f"cd {root!r} && exec {python!r} -m cvflow.cron tailor {job_id!r} >> {log_path!r} 2>&1"
+    try:
+        subprocess.run(  # noqa: S603 — fixed argv, no shell injection (paths/ids are ours)
+            [
+                "systemd-run", "--user", "--collect", f"--unit=cvflow-tailor-{ts}",
+                "bash", "-c", inner,
+            ],
+            env=env,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.STDOUT,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        # Fallback (no user manager / lingering): plain detached child. Escapes the agent loop
+        # but NOT a gateway restart — still better than running inline, and never silent.
+        with open(log_path, "a") as log:
+            log.write("systemd-run --user failed; falling back to detached Popen\n")
+            log.flush()
+            subprocess.Popen(  # noqa: S603 — fixed argv, no shell
+                [python, "-m", "cvflow.cron", "tailor", job_id],
+                cwd=root,
+                start_new_session=True,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+            )
+
+
+async def handle(event_type: str, context: dict[str, Any]) -> dict[str, Any]:
+    try:
+        _ensure_import()
+        from cvflow.tailor_command import handle_tailor_command
+
+        res = handle_tailor_command(
+            args=str(context.get("args", "")),
+            user_id=context.get("user_id"),
+            authorized_user_id=_authorized_user_id(),
+            store=_build_store(),
+            spawn=_spawn,
+            is_locked=_is_locked,
+        )
+        if not res.handled:
+            return {}
+        return {"decision": "handled", "message": res.message}
+    except Exception:  # noqa: BLE001 — never leak a stack trace to the user; fall through
+        return {}

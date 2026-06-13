@@ -1,0 +1,4 @@
+name: cvflow-tailor
+description: Deterministic single-job résumé tailoring trigger for cvflow (/tailor).
+events:
+  - command:tailor

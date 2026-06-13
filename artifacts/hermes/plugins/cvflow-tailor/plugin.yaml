@@ -1,0 +1,5 @@
+name: cvflow-tailor
+version: 1.0.0
+description: "Registers cvflow's /tailor slash command so the gateway treats it as a known command. The cvflow-tailor HOOK intercepts command:tailor and spawns a detached single-job tailoring run — a trigger, never an approval."
+author: "cvflow"
+kind: standalone
