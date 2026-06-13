@@ -10,6 +10,8 @@ aggregator URLs that only reveal the real ATS after a redirect.
 from __future__ import annotations
 
 import logging
+import urllib.error
+import urllib.request
 from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
@@ -57,11 +59,30 @@ def _classify_host(host: str) -> str:
     return "other"
 
 
+def _resolve_one_hop(url: str) -> str | None:
+    """Return the final URL after following redirects (10 s), or None on failure.
+
+    Uses a HEAD request; urllib transparently follows redirects, so the response
+    URL is the resolved target. Never raises — recon must never break discovery.
+    """
+    try:
+        req = urllib.request.Request(url, method="HEAD")
+        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310 - http(s) only
+            return str(resp.url)
+    except (urllib.error.URLError, ValueError, OSError) as exc:
+        logger.warning("recon redirect resolve failed for %s: %s", url, exc)
+        return None
+
+
 def classify_ats(url: str, fetch_redirect: bool = False) -> str:
     """Return the ATS label for ``url`` (one of :data:`ATS_LABELS`).
 
     With ``fetch_redirect=True``, follow one hop of HTTP redirects (10 s
     timeout) and classify the resolved URL; any network failure falls back to
-    classifying the original URL. (The redirect helper is added in a later task.)
+    classifying the original URL.
     """
-    return _classify_host(urlsplit(url).netloc)
+    label = _classify_host(urlsplit(url).netloc)
+    if label != "other" or not fetch_redirect:
+        return label
+    resolved = _resolve_one_hop(url)
+    return _classify_host(urlsplit(resolved).netloc) if resolved else "other"

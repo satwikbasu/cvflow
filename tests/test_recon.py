@@ -1,5 +1,6 @@
 import pytest
 
+from cvflow import recon
 from cvflow.recon import ATS_LABELS, classify_ats
 
 
@@ -33,3 +34,25 @@ def test_classify_ats_by_pattern(url, expected):
 def test_every_returned_label_is_known():
     for url in ["https://boards.greenhouse.io/x", "https://careers.acme.com/x"]:
         assert classify_ats(url) in ATS_LABELS
+
+
+def test_fetch_redirect_resolves_to_ats(monkeypatch):
+    monkeypatch.setattr(
+        recon, "_resolve_one_hop",
+        lambda url: "https://boards.greenhouse.io/acme/jobs/9",
+    )
+    assert classify_ats("https://t.co/short", fetch_redirect=True) == "greenhouse"
+
+
+def test_fetch_redirect_failure_falls_back_to_original(monkeypatch):
+    monkeypatch.setattr(recon, "_resolve_one_hop", lambda url: None)
+    assert classify_ats("https://jobs.lever.co/acme/x", fetch_redirect=True) == "lever"
+    assert classify_ats("https://careers.acme.com/x", fetch_redirect=True) == "other"
+
+
+def test_fetch_redirect_not_called_when_already_classified(monkeypatch):
+    def _boom(url):
+        raise AssertionError("must not resolve when host already matched")
+
+    monkeypatch.setattr(recon, "_resolve_one_hop", _boom)
+    assert classify_ats("https://boards.greenhouse.io/x", fetch_redirect=True) == "greenhouse"
