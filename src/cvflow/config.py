@@ -94,6 +94,7 @@ class ResumeConfig:
     master_tex_path: str
     output_dir: str
     latex_compiler: str
+    use_jd_analysis: bool = False
 
 
 @dataclass(frozen=True)
@@ -347,6 +348,7 @@ def load_config(path: str | Path) -> Config:
             master_tex_path=_get_str(res, "master_tex_path", "resume."),
             output_dir=_get_str(res, "output_dir", "resume."),
             latex_compiler=_get_str(res, "latex_compiler", "resume."),
+            use_jd_analysis=_opt_bool(res, "use_jd_analysis", "resume.", False),
         ),
         automation=AutomationConfig(
             headless=_get_bool(auto, "headless", "automation."),

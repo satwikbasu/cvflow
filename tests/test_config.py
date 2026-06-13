@@ -304,3 +304,19 @@ def test_example_config_includes_naukri_site():
     from cvflow.config import load_config
     cfg = load_config(Path(__file__).resolve().parent.parent / "config.example.yaml")
     assert "naukri" in cfg.discovery.sites
+
+
+def test_use_jd_analysis_defaults_false_when_absent(tmp_path: Path) -> None:
+    # VALID_YAML omits use_jd_analysis; the absent-key default must be False.
+    cfg = load_config(_write(tmp_path, VALID_YAML))
+    assert cfg.resume.use_jd_analysis is False
+
+
+def test_use_jd_analysis_reads_true(tmp_path: Path) -> None:
+    # Setting use_jd_analysis: true in the resume block must be reflected on load.
+    yaml_text = VALID_YAML.replace(
+        '  latex_compiler: "latexmk"\n',
+        '  latex_compiler: "latexmk"\n  use_jd_analysis: true\n',
+    )
+    cfg = load_config(_write(tmp_path, yaml_text))
+    assert cfg.resume.use_jd_analysis is True

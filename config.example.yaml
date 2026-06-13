@@ -93,6 +93,9 @@ resume:
   master_tex_path: "resume/master.tex"   # your modular master LaTeX resume
   output_dir: "data/resumes"             # compiled tailored PDFs land here
   latex_compiler: "tectonic"             # locked decision; resume/ shells to tectonic regardless
+  # false = tailor from the cached discovery crux (no extra LLM call, works on every ranked job);
+  # true  = re-analyze the stored JD text per job for richer required/preferred fields.
+  use_jd_analysis: false
 
 automation:
   headless: false                 # run headed under xvfb on the server
