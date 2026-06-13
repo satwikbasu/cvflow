@@ -120,6 +120,15 @@ scripts/install-hermes-cron.sh
 
 Manual run of any job: `cd /home/ubuntu/cvflow && .venv/bin/python -m cvflow.cron heartbeat`.
 
+## ATS recon report (automation go/no-go)
+
+`cd /home/ubuntu/cvflow && .venv/bin/python -m cvflow.recon report` prints, per ATS,
+the share of **presented** vs **approved** jobs and the Greenhouse+Lever share of approved.
+Data accrues automatically — discovery tags each newly-persisted job by URL, and `analyze_jd`
+upgrades the tag by resolving one redirect hop. Use it after ~2–3 weeks of digests to make the
+automation go/no-go (build the Greenhouse+Lever submitter only if their combined share of
+approved jobs is ≥ ~20%).
+
 ## Changing the schedule / reloading cron + config
 
 What you reload depends on **what** you changed:
