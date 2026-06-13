@@ -99,17 +99,27 @@ class CvflowTools:
             ],
         }
 
-    def get_application(self, job_id: str) -> dict[str, Any] | None:
-        """Get / show the full details of ONE specific job application — its status, the JD
-        URL/link, company, role, and dates. USE THIS when asked for the details, info, link,
-        or status of a particular job (e.g. "details for the Rarr Technologies role", "show me
+    def get_application(self, ref: str) -> dict[str, Any] | None:
+        """Get / show ONE job's details — by job_id (e.g. "naukri:080626501910") OR by its
+        digest ordinal (e.g. "4" -> "details for job 4"). USE THIS when asked for the details,
+        info, link, status, or scores of a particular job (e.g. "details for job 4", "show me
         the Django backend job", "what's the link for that application?").
 
-        Identified by ``job_id`` (e.g. "naukri:080626501910"). If you only know the company or
-        role NAME, first call ``list_applications`` to find the matching ``job_id``, then pass
-        it here. Returns a compact record (drops always-null proof/OTP internals); None if not
-        found.
+        Returns status, JD URL/link, company, role, dates, the fit/benchmark scores, and a crux
+        summary (role family, must-have skills, one-line) so you can decide whether to /tailor
+        it. If you only know the company or role NAME, first call ``list_applications`` to find
+        the matching ``job_id``. Drops always-null proof/OTP internals; None if not found.
         """
+        job_id = ref
+        if ":" not in str(ref):
+            try:
+                slot = int(ref)
+            except (TypeError, ValueError):
+                return None
+            resolved = self._store.get_digest_slot(slot)
+            if resolved is None:
+                return None
+            job_id = resolved
         app = self._store.get(job_id)
         if app is None:
             return None
@@ -121,10 +131,26 @@ class CvflowTools:
             "jd_url": app.jd_url,
             "discovered_at": app.discovered_at,
         }
-        for k in ("tailored_pdf_path", "applied_at", "confirmation_ref"):
+        for k in ("tailored_pdf_path", "applied_at", "confirmation_ref",
+                  "benchmark", "fit_score", "fit_reason", "cohort", "ctc_lpa"):
             v = getattr(app, k, None)
-            if v:
+            if v is not None:
                 out[k] = v
+        if app.concerns:
+            try:
+                parsed = json.loads(app.concerns)
+            except (ValueError, TypeError):
+                parsed = None
+            if parsed:  # set_discovery_meta stores "[]" for no concerns — drop that noise
+                out["concerns"] = parsed
+        crux_json = self._store.get_crux(job_id)
+        if crux_json:
+            c = json.loads(crux_json)
+            out["crux"] = {
+                k: c.get(k) for k in
+                ("role_family", "seniority_signal", "must_have_skills",
+                 "company_type", "one_line")
+            }
         return out
 
     # ------------------------------------------------------------------

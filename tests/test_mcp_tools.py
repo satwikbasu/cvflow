@@ -111,6 +111,47 @@ def _store_with_job():
     return store
 
 
+def _tools_with_scored_job():
+    import json
+
+    from cvflow.storage import ApplicationStore
+
+    store = ApplicationStore(":memory:")
+    store.add("indeed:1", "Acme", "Backend Engineer", "https://x/1")
+    store.set_discovery_meta(
+        "indeed:1", benchmark=80, fit_score=7, fit_reason="strong match",
+        concerns=["onsite"], cohort="N", ctc_lpa=12.0,
+    )
+    store.save_crux(
+        "indeed:1",
+        json.dumps({
+            "role_family": "backend", "seniority_signal": "mid",
+            "must_have_skills": ["python"], "company_type": "product",
+            "one_line": "Backend role at Acme.",
+        }),
+    )
+    store.set_digest_slots(["a:0", "b:0", "c:0", "indeed:1"])  # slot 4 -> indeed:1
+    tools = CvflowTools(
+        store=store, knowledge=None, discovery=None, analyzer=None, tailor=None
+    )
+    return tools, store
+
+
+def test_get_application_by_ordinal_with_scores_and_crux():
+    tools, store = _tools_with_scored_job()
+    out = tools.get_application("4")  # ordinal
+    assert out["job_id"] == "indeed:1"
+    assert out["fit_score"] == 7 and out["benchmark"] == 80 and out["cohort"] == "N"
+    assert out["concerns"] == ["onsite"]
+    assert out["crux"]["role_family"] == "backend"
+    assert out["crux"]["one_line"]
+
+
+def test_get_application_unknown_ordinal_returns_none():
+    tools, _ = _tools_with_scored_job()
+    assert tools.get_application("99") is None
+
+
 def test_request_review_moves_to_pending_review(tmp_path):
     class _FakeTailor:
         def plan(self, jd, *, feedback=None):
