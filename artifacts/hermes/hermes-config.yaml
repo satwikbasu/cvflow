@@ -12,9 +12,11 @@ mcp_servers:
     args: ["-m", "cvflow.mcp"]
     cwd: /home/ubuntu/cvflow
     tools:
-      include: [ping, discover, analyze_jd, list_applications, get_application,
-            request_review, submit, compose_essay, status_report,
-            fill_application, resume_application, submit_otp]
+      # Read/Q&A subset the brain may call. Tailoring is deterministic now (the /tailor
+      # plugin → cvflow.tailor_command, off the agent loop), so analyze_jd + request_review
+      # are dropped.
+      include: [ping, discover, list_applications, get_application,
+            compose_essay, status_report]
 providers: {}
 fallback_providers: []
 credential_pool_strategies: {}
@@ -631,3 +633,4 @@ plugins:
   enabled:
     - cvflow-gate
     - cvflow-discover
+    - cvflow-tailor

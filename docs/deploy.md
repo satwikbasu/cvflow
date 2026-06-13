@@ -28,19 +28,42 @@ provider, `/new` in Telegram** or every turn 400s on replayed old-format tool-ca
 (NVIDIA NIM was the brain until 2026-06-11 — dropped for 2–9 min free-tier latency.)
 
 ## MCP tool allowlist
-`~/.hermes/config.yaml` → `mcp_servers.cvflow.tools.include` must list all 12 cvflow tools:
-`ping, discover, analyze_jd, list_applications, get_application, request_review, submit,
-compose_essay, status_report, fill_application, resume_application, submit_otp`.
-It must NEVER include `approve` — the approval gate is the `/apply` hook + plugin under
-`artifacts/hermes/` (installed to `~/.hermes/{hooks,plugins}/`), enforced outside the agent loop.
-Verify: `hermes mcp test cvflow` → "Tools discovered: 12", no `approve`. After editing the live
-config, reload the gateway so it re-reads the server (`sudo systemctl restart hermes-gateway`).
+`~/.hermes/config.yaml` → `mcp_servers.cvflow.tools.include` is the read/Q&A subset the brain may
+call — exactly 6: `ping, discover, list_applications, get_application, compose_essay,
+status_report`. Tailoring is deterministic now (the `/tailor` hook + plugin, off the agent loop),
+so `analyze_jd` and `request_review` are NOT in the allowlist. It must NEVER include `approve` —
+the approval gate is the `/apply` hook + plugin under `artifacts/hermes/` (installed to
+`~/.hermes/{hooks,plugins}/`), enforced outside the agent loop. After editing the live config,
+reload the gateway so it re-reads the server (`sudo systemctl restart hermes-gateway`).
+
+## Application flow (discover → tailor → apply)
+The end-to-end flow is deterministic at every step the brain can't be trusted with:
+```
+/discover                 # ranked digest (numbered)
+"details for job N"       # brain calls get_application → scores + crux summary
+/tailor N                 # deterministic: tailor + compile PDF, → pending_review
+/apply N                  # human-only approval gate (cvflow.gate), → approved → apply
+```
+The brain reads (`get_application`) and explains; tailoring (`/tailor`) and approval (`/apply`) are
+hooks outside the agent loop.
+
+`resume.use_jd_analysis` in `config.yaml` controls how `/tailor` builds the analysis it tailors from:
+- **`false` (default)** — tailor from the cached discovery crux. No extra LLM call, and it works on
+  every ranked job (the crux is already stored at discovery time).
+- **`true`** — re-analyze the stored JD text per job (one extra LLM call), for richer tailoring when
+  the JD has detail the crux dropped.
+
+**Before the first run on the live box, back up the DB** so the additive migration is reversible:
+```bash
+cp data/cvflow.db data/cvflow.db.bak
+```
 
 ## Command hooks + plugins (deterministic, off the agent loop)
 cvflow's slash commands run as Hermes **command hooks** in the gateway process, *outside* the
-brain — the gate (`/apply`, `/skip`) and the manual discovery trigger (`/discover`). Each is a
-`hooks/<name>/` (the handler) plus a `plugins/<name>/` (registers the command so the gateway
-fires the hook). Install both into the live Hermes dirs and enable the plugins:
+brain — the gate (`/apply`, `/skip`), the manual discovery trigger (`/discover`), and the
+deterministic tailor (`/tailor`). Each is a `hooks/<name>/` (the handler) plus a
+`plugins/<name>/` (registers the command so the gateway fires the hook). Install both into the
+live Hermes dirs and enable the plugins:
 ```bash
 # ⚠ Create the target dirs FIRST. Hermes creates ~/.hermes/hooks/ on first run but may NOT
 # create ~/.hermes/plugins/ — and `cp -r SRC ~/.hermes/plugins/cvflow-gate` FAILS when the
@@ -51,15 +74,19 @@ cp -r artifacts/hermes/hooks/cvflow-gate       ~/.hermes/hooks/cvflow-gate
 cp -r artifacts/hermes/plugins/cvflow-gate     ~/.hermes/plugins/cvflow-gate
 cp -r artifacts/hermes/hooks/cvflow-discover   ~/.hermes/hooks/cvflow-discover
 cp -r artifacts/hermes/plugins/cvflow-discover ~/.hermes/plugins/cvflow-discover
-# ~/.hermes/config.yaml → plugins.enabled must list BOTH:
+cp -r artifacts/hermes/hooks/cvflow-tailor     ~/.hermes/hooks/cvflow-tailor
+cp -r artifacts/hermes/plugins/cvflow-tailor   ~/.hermes/plugins/cvflow-tailor
+# ~/.hermes/config.yaml → plugins.enabled must list ALL THREE:
 #   plugins:
 #     enabled:
 #     - cvflow-gate
 #     - cvflow-discover
+#     - cvflow-tailor
 sudo systemctl restart hermes-gateway
 ```
-Verify in the gateway log: `Loaded hook 'cvflow-gate' for events: ['command:apply', 'command:skip']`
-and `Loaded hook 'cvflow-discover' for events: ['command:discover']`. The hooks import cvflow from
+Verify in the gateway log: `Loaded hook 'cvflow-gate' for events: ['command:apply', 'command:skip']`,
+`Loaded hook 'cvflow-discover' for events: ['command:discover']`, and
+`Loaded hook 'cvflow-tailor' for events: ['command:tailor']`. The hooks import cvflow from
 `$CVFLOW_ROOT` (default `~/cvflow`) at runtime — set `CVFLOW_ROOT` in `~/.hermes/.env` if the repo
 lives elsewhere.
 - **`/apply` / `/skip`** route to `cvflow.gate.handle_gate_command` (the sole `approve()` caller).
@@ -72,6 +99,9 @@ lives elsewhere.
   drop_summary_max_chars,drop_summary_samples_per_bucket,cron_sends_drops}` in `config.yaml`.
   A `fcntl` run lock (`data/discover.lock`) guarantees the daily cron and a manual `/discover` never
   double-run.
+- **`/tailor N`** tailors + compiles the PDF for one job (by digest ordinal or job_id) and moves it
+  to `pending_review` — deterministic, off the agent loop. The brain no longer tailors; it only
+  answers via `get_application` and points the user at `/tailor`.
 - **Discovery log convention:** every run streams its **live** raw log to a per-run file in `data/`
   (`discover-manual-<ts>.log` for `/discover`, `discover-cron-<ts>.log` for the daily cron); the
   **finished** digest is archived to `logs/discover/<ts>.md` only on completion. `data/` = live
