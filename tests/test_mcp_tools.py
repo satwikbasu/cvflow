@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
-
 from cvflow.mcp.tools import CvflowTools
-from cvflow.statemachine import Status, SubmissionBlocked
+from cvflow.statemachine import Status
 
 
 def _tools(tmp_path=None):
@@ -18,6 +16,16 @@ def _tools(tmp_path=None):
         analyzer=None,
         tailor=None,
     )
+
+
+def test_tool_names_excludes_automation_and_approve():
+    from cvflow.mcp.tools import TOOL_NAMES
+    forbidden = {"approve", "submit", "fill_application", "resume_application", "submit_otp"}
+    assert forbidden.isdisjoint(TOOL_NAMES)
+    assert set(TOOL_NAMES) == {
+        "ping", "discover", "analyze_jd", "list_applications", "get_application",
+        "request_review", "compose_essay", "status_report",
+    }
 
 
 def test_ping_returns_ok(tmp_path):
@@ -137,37 +145,6 @@ def test_request_review_moves_to_pending_review(tmp_path):
     assert store.get("indeed:9").status == Status.PENDING_REVIEW
 
 
-def test_submit_blocks_when_not_approved():
-    store = _store_with_job()
-    tools = CvflowTools(
-        store=store, knowledge=None, discovery=None, analyzer=None, tailor=None
-    )
-    store.set_status("indeed:9", Status.PENDING_REVIEW)
-    with pytest.raises(SubmissionBlocked):
-        tools.submit("indeed:9")
-
-
-def test_submit_blocks_for_freshly_discovered():
-    store = _store_with_job()
-    tools = CvflowTools(
-        store=store, knowledge=None, discovery=None, analyzer=None, tailor=None
-    )
-    with pytest.raises(SubmissionBlocked):
-        tools.submit("indeed:9")
-
-
-def test_submit_succeeds_only_after_out_of_band_approval():
-    store = _store_with_job()
-    tools = CvflowTools(
-        store=store, knowledge=None, discovery=None, analyzer=None, tailor=None
-    )
-    store.set_status("indeed:9", Status.PENDING_REVIEW)
-    store.approve("indeed:9")
-    result = tools.submit("indeed:9")
-    assert result["job_id"] == "indeed:9"
-    assert result["status"] == Status.APPROVED.value
-
-
 def test_cvflowtools_has_no_approve_method():
     store = _store_with_job()
     tools = CvflowTools(
@@ -282,67 +259,3 @@ def test_discover_returns_url_for_every_job():
     jobs = tools.discover()
     assert jobs and all(j["url"] for j in jobs)
     assert jobs[0]["url"] == "https://jobs/7"
-
-
-def test_fill_application_is_gated_and_has_no_approve_tool():
-    from cvflow.mcp.tools import TOOL_NAMES
-    from cvflow.statemachine import SubmissionBlocked, guard_can_submit
-    from cvflow.storage import ApplicationStore
-
-    assert "approve" not in TOOL_NAMES
-    assert "fill_application" in TOOL_NAMES
-    assert "resume_application" in TOOL_NAMES
-
-    store = ApplicationStore(":memory:")
-    store.add("indeed:1", "Acme", "Backend", "https://jobs/1")
-
-    class _Auto:
-        def fill(self, job_id):
-            guard_can_submit(store.get(job_id).status)
-            return {"status": "applied"}
-        def resume(self, job_id, answer):
-            return {"status": "applied"}
-
-    tools = CvflowTools(
-        store=store, knowledge=None, discovery=None, analyzer=None,
-        tailor=None, automator=_Auto(),
-    )
-    with pytest.raises(SubmissionBlocked):
-        tools.fill_application("indeed:1")
-    assert not hasattr(tools, "approve")
-
-
-def test_submit_otp_routes_on_time_and_times_out_late():
-    from cvflow.mcp.tools import TOOL_NAMES
-
-    assert "approve" not in TOOL_NAMES
-    assert "submit_otp" in TOOL_NAMES
-
-    class _Coord:
-        def __init__(self, code):
-            self._code = code
-        def provide(self, job_id, otp):
-            return self._code  # None simulates expiry
-
-    class _Auto:
-        def __init__(self):
-            self.resumed = None
-        def resume(self, job_id, answer):
-            self.resumed = (job_id, answer)
-            return {"status": "applied"}
-
-    auto = _Auto()
-    tools = CvflowTools(
-        store=None, knowledge=None, discovery=None, analyzer=None,
-        tailor=None, automator=auto, otp_coordinator=_Coord("123456"),
-    )
-    assert tools.submit_otp("indeed:1", "123456") == {"status": "applied"}
-    assert auto.resumed == ("indeed:1", "123456")
-
-    auto2 = _Auto()
-    tools2 = CvflowTools(
-        store=None, knowledge=None, discovery=None, analyzer=None,
-        tailor=None, automator=auto2, otp_coordinator=_Coord(None),
-    )
-    assert tools2.submit_otp("indeed:1", "123456") == {"otp_timeout": True, "job_id": "indeed:1"}
-    assert auto2.resumed is None
