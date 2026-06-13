@@ -583,3 +583,25 @@ def test_discover_collects_drop_records_with_bucket_and_detail():
     by_bucket = Counter(r.bucket for r in records if r.bucket != "capped")
     for bucket, n in by_bucket.items():
         assert result["_dropped"][bucket] == n
+
+
+def test_persist_stage_writes_meta_and_jd_text():
+    """After discover(), persisted Application has fit/cohort/fit_reason from BenchmarkedJob
+    and get_jd_text() returns the posting's description (Task 2 wiring)."""
+    store = ApplicationStore(":memory:")
+    # _StubGemini.generate returns fit_score=80, fit_reason="ok", concern_codes=[]
+    # The row has a description we can assert on.
+    rows = [_row("42", description="the scraped JD description")]
+    svc = _two_stage_service(store, lambda **k: rows, throttle_seconds=0.0,
+                             sleep=lambda s: None, locations=["Remote"])
+    svc.discover(progress=lambda _m: None)
+    job_id = "linkedin:42"
+    app = store.get(job_id)
+    assert app is not None, "job should have been persisted"
+    # Fit signals from the stub (fit_score=80, fit_reason="ok") — check they landed.
+    assert app.fit_score == 80
+    assert app.fit_reason == "ok"
+    # cohort is either "M" or "N" (no stated salary -> "N")
+    assert app.cohort == "N"
+    # Raw JD text should be stored via set_jd_text.
+    assert store.get_jd_text(job_id) == "the scraped JD description"

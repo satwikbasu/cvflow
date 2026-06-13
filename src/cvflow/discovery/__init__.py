@@ -502,6 +502,15 @@ class DiscoveryService:
                 p = bj.posting
                 if not self._store.exists(p.job_id):
                     self._store.add(p.job_id, p.company, p.title, p.url)
+                # Persist ranking signals (upsert every run — scores can change) and the raw
+                # JD text once, so tailoring/get_application work without re-fetching walled URLs.
+                self._store.set_discovery_meta(
+                    p.job_id, benchmark=bj.benchmark, fit_score=bj.fit_score,
+                    fit_reason=bj.fit_reason, concerns=bj.concerns, cohort=bj.cohort,
+                    ctc_lpa=bj.ctc_lpa,
+                )
+                if p.description and self._store.get_jd_text(p.job_id) is None:
+                    self._store.set_jd_text(p.job_id, p.description)
         logger.info(
             "discover total: %.1fs — presenting M=%d, N=%d (filtered: %s)",
             time.monotonic() - t0, len(result["M"]), len(result["N"]), drops,
