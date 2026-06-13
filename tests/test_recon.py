@@ -56,3 +56,14 @@ def test_fetch_redirect_not_called_when_already_classified(monkeypatch):
 
     monkeypatch.setattr(recon, "_resolve_one_hop", _boom)
     assert classify_ats("https://boards.greenhouse.io/x", fetch_redirect=True) == "greenhouse"
+
+
+def test_persist_tagging_contract() -> None:
+    # documents the contract discovery uses: classify (no network) then set_ats
+    from cvflow.storage import ApplicationStore
+
+    store = ApplicationStore(":memory:")
+    url = "https://jobs.lever.co/acme/x"
+    store.add("j", "Acme", "Eng", url)
+    store.set_ats("j", classify_ats(url))
+    assert store.get("j").ats == "lever"

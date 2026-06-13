@@ -212,30 +212,61 @@ def test_discover_dispatches_to_discovery_service():
     assert out[0]["url"] == "https://x/7"
 
 
-def test_analyze_jd_dispatches_and_persists():
+def _fake_analyzer():
     from cvflow.analysis import JDAnalysis
-    from cvflow.storage import ApplicationStore
-
-    store = ApplicationStore(":memory:")
-    store.add("indeed:5", "Acme", "Backend Engineer", "https://x/5")
 
     class FakeAnalyzer:
         def analyze(self, jd_text):
-            assert jd_text == "RAW JD TEXT"
             return JDAnalysis(
                 required_skills=["python"], preferred_quals=["aws"],
                 seniority="mid", tone="casual",
                 applicant_instructions=["include the word pineapple"],
             )
 
+    return FakeAnalyzer()
+
+
+def test_analyze_jd_dispatches_and_persists(monkeypatch):
+    from cvflow import recon
+    from cvflow.storage import ApplicationStore
+
+    # jd_url is "other"; with fetch_redirect=True analyze_jd would attempt a
+    # network HEAD — stub the resolver so the unit test stays offline.
+    monkeypatch.setattr(recon, "_resolve_one_hop", lambda url: None)
+
+    store = ApplicationStore(":memory:")
+    store.add("indeed:5", "Acme", "Backend Engineer", "https://x/5")
+
     tools = CvflowTools(
         store=store, knowledge=None, discovery=None,
-        analyzer=FakeAnalyzer(), tailor=None,
+        analyzer=_fake_analyzer(), tailor=None,
     )
     out = tools.analyze_jd("indeed:5", jd_text="RAW JD TEXT")
     assert out["required_skills"] == ["python"]
     assert out["applicant_instructions"] == ["include the word pineapple"]
     assert store.get_analysis("indeed:5").seniority == "mid"
+    assert store.get("indeed:5").ats == "other"
+
+
+def test_analyze_jd_tags_ats_without_network(monkeypatch):
+    from cvflow import recon
+    from cvflow.storage import ApplicationStore
+
+    # A greenhouse host classifies on pattern alone — the resolver must never run.
+    def _boom(url):
+        raise AssertionError("must not resolve when host already matched")
+
+    monkeypatch.setattr(recon, "_resolve_one_hop", _boom)
+
+    store = ApplicationStore(":memory:")
+    store.add("gh:1", "Acme", "Eng", "https://boards.greenhouse.io/acme/jobs/1")
+
+    tools = CvflowTools(
+        store=store, knowledge=None, discovery=None,
+        analyzer=_fake_analyzer(), tailor=None,
+    )
+    tools.analyze_jd("gh:1", jd_text="RAW JD TEXT")
+    assert store.get("gh:1").ats == "greenhouse"
 
 
 def test_build_tools_wires_store_and_knowledge(tmp_path, monkeypatch):
