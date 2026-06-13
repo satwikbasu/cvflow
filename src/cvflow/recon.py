@@ -144,18 +144,83 @@ def format_report(report: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
+def build_healthcheck(store: ApplicationStore, since: str) -> dict[str, object]:
+    """Is the recon instrument actually classifying *newly* discovered jobs?
+
+    Looks only at jobs discovered on/after ``since`` (an ISO timestamp/date) —
+    older rows pre-date tagging and are all ``other`` by definition, so they'd
+    mask the signal. Returns the per-ATS spread of recent jobs plus a verdict:
+    WORKING (some recent job got a real ATS), SUSPICIOUS (every recent job is
+    ``other`` — the URL classifier is likely missing ATSes hidden behind a
+    redirect or JS apply-handoff), or NO DATA (nothing discovered yet).
+    """
+    conn = store._conn  # same connection; read-only aggregate
+    recent: dict[str, int] = {}
+    for row in conn.execute(
+        "SELECT COALESCE(ats, 'other') AS k, COUNT(*) AS n FROM applications "
+        "WHERE discovered_at >= ? GROUP BY k",
+        (since,),
+    ):
+        recent[row["k"]] = row["n"]
+    total = sum(recent.values())
+    non_other = total - recent.get("other", 0)
+    if total == 0:
+        verdict = "NO DATA — no jobs discovered since the cutoff yet"
+    elif non_other == 0:
+        verdict = (
+            "SUSPICIOUS — every new job tagged 'other'. The URL classifier is "
+            "probably missing ATSes hidden behind a redirect or a JS apply-handoff; "
+            "consider upgrading to DOM-level classification (open the apply page)."
+        )
+    else:
+        verdict = "WORKING — new jobs are being classified across real ATSes"
+    return {
+        "since": since,
+        "recent": recent,
+        "recent_total": total,
+        "recent_non_other": non_other,
+        "verdict": verdict,
+    }
+
+
+def format_healthcheck(report: dict[str, object]) -> str:
+    recent: dict[str, int] = report["recent"]  # type: ignore[assignment]
+    total: int = report["recent_total"]  # type: ignore[assignment]
+    non_other: int = report["recent_non_other"]  # type: ignore[assignment]
+    lines = [
+        "ATS recon health-check",
+        f"(jobs discovered since {report['since']})",
+        "",
+    ]
+    for label in ATS_LABELS:
+        n = recent.get(label, 0)
+        if n:
+            lines.append(f"{label:<16}{n:>6}")
+    lines += [
+        "",
+        f"recent jobs: {total} (classified to a real ATS: {non_other})",
+        f"Verdict: {report['verdict']}",
+    ]
+    return "\n".join(lines)
+
+
 def _main(argv: list[str] | None = None) -> int:
     import argparse
+    from datetime import UTC, datetime, timedelta
 
     from cvflow.config import load_config
     from cvflow.storage import ApplicationStore
 
     parser = argparse.ArgumentParser(prog="cvflow.recon")
-    parser.add_argument("command", choices=["report"])
-    parser.parse_args(argv)
+    parser.add_argument("command", choices=["report", "healthcheck"])
+    args = parser.parse_args(argv)
     config = load_config("config.yaml")
     store = ApplicationStore(config.storage.db_path)
-    print(format_report(build_report(store)))
+    if args.command == "healthcheck":
+        since = (datetime.now(UTC) - timedelta(days=7)).isoformat()
+        print(format_healthcheck(build_healthcheck(store, since)))
+    else:
+        print(format_report(build_report(store)))
     return 0
 
 

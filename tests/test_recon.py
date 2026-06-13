@@ -109,3 +109,56 @@ def test_format_report_is_a_table_string() -> None:
     assert "greenhouse" in text and "%" in text
     # 2 of 2 approvals are GH+Lever -> 100% share line
     assert "Greenhouse+Lever share of approved: 100%" in text
+
+
+def test_healthcheck_working_when_recent_jobs_classified() -> None:
+    from cvflow.recon import build_healthcheck
+    from cvflow.storage import ApplicationStore
+
+    store = ApplicationStore(":memory:")
+    store.add("g1", "Co", "R", "u1")
+    store.set_ats("g1", "greenhouse")
+    store.add("o1", "Co", "R", "u2")
+    store.set_ats("o1", "other")
+    hc = build_healthcheck(store, since="2000-01-01")
+    assert hc["recent_total"] == 2
+    assert hc["recent_non_other"] == 1
+    assert "WORKING" in hc["verdict"]  # type: ignore[operator]
+
+
+def test_healthcheck_suspicious_when_all_other() -> None:
+    from cvflow.recon import build_healthcheck
+    from cvflow.storage import ApplicationStore
+
+    store = ApplicationStore(":memory:")
+    store.add("o1", "Co", "R", "u1")
+    store.set_ats("o1", "other")
+    store.add("o2", "Co", "R", "u2")  # untagged -> COALESCE to other
+    hc = build_healthcheck(store, since="2000-01-01")
+    assert hc["recent_total"] == 2
+    assert hc["recent_non_other"] == 0
+    assert "SUSPICIOUS" in hc["verdict"]  # type: ignore[operator]
+
+
+def test_healthcheck_no_data_when_since_in_future() -> None:
+    from cvflow.recon import build_healthcheck
+    from cvflow.storage import ApplicationStore
+
+    store = ApplicationStore(":memory:")
+    store.add("g1", "Co", "R", "u1")
+    store.set_ats("g1", "greenhouse")
+    hc = build_healthcheck(store, since="2999-01-01")
+    assert hc["recent_total"] == 0
+    assert "NO DATA" in hc["verdict"]  # type: ignore[operator]
+
+
+def test_format_healthcheck_includes_verdict_and_cutoff() -> None:
+    from cvflow.recon import build_healthcheck, format_healthcheck
+    from cvflow.storage import ApplicationStore
+
+    store = ApplicationStore(":memory:")
+    store.add("g1", "Co", "R", "u1")
+    store.set_ats("g1", "greenhouse")
+    text = format_healthcheck(build_healthcheck(store, since="2000-01-01"))
+    assert "Verdict" in text
+    assert "2000-01-01" in text
