@@ -239,6 +239,35 @@ def run_job(
         raise ValueError(f"unknown cron job: {job}")
 
 
+def run_tailor(job_id: str, *, tools: Any, notify: Any, lock: Any = None) -> None:
+    """Tailor one job (detached entrypoint for /tailor). Posts PDF + diff; errors notify.
+
+    A single-run lock (default real ``tailor_lock``) serializes tailoring so two ``/tailor``
+    invocations don't fight over Tectonic + the LLM. A lock raised from inside the body is a
+    real bug and never swallowed (the ``acquired`` flag distinguishes it from contention).
+    """
+    from cvflow.runlock import AlreadyRunning, tailor_lock
+
+    cm = lock if lock is not None else tailor_lock()
+    acquired = False
+    try:
+        with cm:
+            acquired = True
+            try:
+                result = tools.request_review(job_id)
+                notify(
+                    f"✅ Tailored — {job_id}\n{result['pdf_path']}\n\n{result['diff']}\n\n"
+                    f"{result['instructions']}"
+                )
+            except Exception as exc:  # noqa: BLE001 — never silent (CLAUDE.md invariant 3)
+                notify(f"⚠️ Tailoring failed for {job_id}: {exc}")
+                raise
+    except AlreadyRunning:
+        if acquired:
+            raise  # came from inside the run, not lock contention — never swallow it
+        notify("⏳ A tailoring run is already in progress — try again shortly.")
+
+
 def _build_provider(cfg: Any) -> Any:
     """Construct a NimProvider from a config LLM block."""
     from cvflow.llm import NimProvider
@@ -319,12 +348,22 @@ def main(
     if not args or len(args) > 2:
         raise SystemExit(
             "usage: python -m cvflow.cron"
-            " <discover [--progress]|sweep-otp|heartbeat|learn|print-hermes-schedule>"
+            " <discover [--progress]|tailor <job_id>|sweep-otp|heartbeat|learn"
+            "|print-hermes-schedule>"
         )
     job = args[0]
     if job == "print-hermes-schedule":
         for line in format_hermes_schedule(load_config("config.yaml")):
             print(line)
+        return
+    if job == "tailor":
+        if len(args) < 2:
+            raise SystemExit("usage: python -m cvflow.cron tailor <job_id>")
+        from cvflow.mcp.tools import build_tools
+        from cvflow.notify import HermesNotifier
+
+        cfg = load_config("config.yaml")
+        run_tailor(args[1], tools=build_tools(cfg), notify=HermesNotifier())
         return
     manual = job == "discover" and "--progress" in args[1:]
     summary_provider: Any = None

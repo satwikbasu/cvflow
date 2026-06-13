@@ -15,7 +15,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-__all__ = ["AlreadyRunning", "discovery_lock", "is_locked"]
+__all__ = ["AlreadyRunning", "discovery_lock", "is_locked", "tailor_lock"]
 
 
 class AlreadyRunning(Exception):
@@ -32,6 +32,22 @@ def discovery_lock(path: str = "data/discover.lock") -> Iterator[None]:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as exc:
             raise AlreadyRunning(f"discovery lock held: {path}") from exc
+        yield
+    finally:
+        os.close(fd)  # closing the fd releases the flock
+
+
+@contextmanager
+def tailor_lock(path: str = "data/tailor.lock") -> Iterator[None]:
+    """Serialize tailoring runs (one /tailor at a time; protects Tectonic + LLM concurrency)."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(p), os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise AlreadyRunning(f"tailor lock held: {path}") from exc
         yield
     finally:
         os.close(fd)  # closing the fd releases the flock

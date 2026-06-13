@@ -333,6 +333,36 @@ def test_run_job_discover_daily_no_drop_msg_but_log_written(tmp_path) -> None:
     assert any(tmp_path.iterdir())                                # log written to disk
 
 
+def test_run_tailor_posts_pdf_and_diff(tmp_path):
+    from contextlib import nullcontext
+
+    from cvflow.cron import run_tailor
+
+    class _Tools:
+        def request_review(self, job_id):
+            return {"job_id": job_id, "status": "pending_review",
+                    "pdf_path": "/x/r.pdf", "diff": "Section order: experience -> projects",
+                    "instructions": f"Reply /apply {job_id} to approve & apply, "
+                                    f"or /skip {job_id} to skip."}
+    notices = []
+    run_tailor("x:1", tools=_Tools(), notify=notices.append, lock=nullcontext())
+    assert any("/x/r.pdf" in m for m in notices)
+    assert any("/apply x:1" in m for m in notices)
+
+
+def test_run_tailor_notifies_on_failure(tmp_path):
+    from contextlib import nullcontext
+
+    from cvflow.cron import run_tailor
+
+    class _Tools:
+        def request_review(self, job_id): raise RuntimeError("compile failed")
+    notices = []
+    with pytest.raises(RuntimeError):
+        run_tailor("x:1", tools=_Tools(), notify=notices.append, lock=nullcontext())
+    assert any("failed" in m.lower() for m in notices)
+
+
 def test_run_job_discover_digest_text_identical_to_format_digest(tmp_path) -> None:
     """Digest text in the notification is byte-identical to format_digest(result)."""
     from cvflow.cron import format_digest, run_job
