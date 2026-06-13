@@ -120,30 +120,6 @@ scripts/install-hermes-cron.sh
 
 Manual run of any job: `cd /home/ubuntu/cvflow && .venv/bin/python -m cvflow.cron heartbeat`.
 
-## ATS recon report (automation go/no-go)
-
-`cd /home/ubuntu/cvflow && .venv/bin/python -m cvflow.recon report` prints, per ATS,
-the share of **presented** vs **approved** jobs and the Greenhouse+Lever share of approved.
-Data accrues automatically — discovery tags each newly-persisted job by URL, and `analyze_jd`
-upgrades the tag by resolving one redirect hop. Use it after ~2–3 weeks of digests to make the
-automation go/no-go (build the Greenhouse+Lever submitter only if their combined share of
-approved jobs is ≥ ~20%).
-
-**Instrument health-check:** `.venv/bin/python -m cvflow.recon healthcheck` looks only at jobs
-discovered in the **last 7 days** and reports whether any got a real ATS tag, or whether the
-classifier is tagging everything `other`. A one-shot `scripts/recon-healthcheck.sh` writes a dated
-report to `$HOME/recon-healthcheck-<date>.txt`; it was scheduled once via the **user crontab**
-(`0 9 20 6 *`, i.e. 2026-06-20 09:00) a week after the tagging deploy, so the window contains only
-post-tagging jobs. **Delete that crontab line after reviewing the file.**
-
-> **Known limitation (caveat for the go/no-go):** classification is **URL-only**. Aggregator
-> listings (Indeed/Naukri) and company career pages that load a Greenhouse/Lever form via a JS
-> click-handoff or an iframe — i.e. *without* an HTTP redirect — get tagged `other` even though the
-> real form is automatable. So the Greenhouse+Lever number is a **floor, not the true figure**. If
-> the health-check reads SUSPICIOUS on genuinely post-tagging data, the fix is DOM-level
-> classification (open the apply page with the existing Playwright runtime and inspect the loaded
-> form/iframe), not trusting the URL guess.
-
 ## Changing the schedule / reloading cron + config
 
 What you reload depends on **what** you changed:

@@ -22,7 +22,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, NamedTuple
 
-from cvflow.recon import classify_ats
 from cvflow.statemachine import Status
 
 __all__ = [
@@ -503,7 +502,6 @@ class DiscoveryService:
                 p = bj.posting
                 if not self._store.exists(p.job_id):
                     self._store.add(p.job_id, p.company, p.title, p.url)
-                    self._store.set_ats(p.job_id, classify_ats(p.url))
         logger.info(
             "discover total: %.1fs — presenting M=%d, N=%d (filtered: %s)",
             time.monotonic() - t0, len(result["M"]), len(result["N"]), drops,

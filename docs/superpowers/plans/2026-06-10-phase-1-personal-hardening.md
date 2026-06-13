@@ -339,16 +339,6 @@ LinkedIn Easy Apply, CAPTCHA solving, credentialed portals (Workday/Naukri login
 submission for anyone but the founder.
 
 **1E-1 Instrumentation (build immediately; zero browser):**
-> **DONE 2026-06-13** (sub-plan `2026-06-11-p1e1-ats-recon.md`). `src/cvflow/recon.py` ships
-> `classify_ats(url, fetch_redirect=False)` (host-pattern match over GH/Lever/Ashby/Workday/Taleo/
-> SuccessFactors/iCIMS/Naukri/LinkedIn/Indeed → else `other`) + a never-raising one-hop
-> `_resolve_one_hop` (stdlib urllib HEAD, 10 s, failures fall back to the original URL); storage
-> gained a nullable `ats` column (additive `_migrate`, fresh `_SCHEMA`) + `set_ats`. Discovery's
-> persist stage tags each newly-added job (no network); `analyze_jd` upgrades it with
-> `fetch_redirect=True`. `python -m cvflow.recon report` prints per-ATS presented/approved counts +
-> the GH+Lever approved share. Commits `cbac315`/`075ef73`/`96df990`/`939dcd4`/`851f0fe`. The 2–3
-> week data clock starts now; 1E-2 (the go/no-go decision) waits on the window. deploy.md documents
-> the report command.
 - Create `src/cvflow/recon.py`:
   `classify_ats(url: str, fetch_redirect: bool = False) -> str` returning one of
   `greenhouse | lever | ashby | workday | taleo | successfactors | icims | naukri | linkedin |
@@ -360,16 +350,6 @@ submission for anyone but the founder.
   `analyze_jd` path upgrades the classification with `fetch_redirect=True` since it fetches anyway.
 - `python -m cvflow.recon report` → table: per ATS, count + % of (a) presented, (b) approved jobs,
   reading the `decisions` + `applications` tables. Document running it in deploy.md.
-
-**Instrument-accuracy caveat (raised 2026-06-13 — must inform 1E-2):** `classify_ats` is
-**URL-only**. Many "company custom" career pages are really Greenhouse/Lever underneath, but they
-load the ATS form via a JS apply-handoff or an iframe *without* an HTTP redirect, so the one-hop
-resolve can't see it; aggregator (Indeed/Naukri) listing URLs hide the real ATS the same way. The
-result: **GH+Lever is under-counted — the reported share is a floor.** A one-shot health-check
-(`python -m cvflow.recon healthcheck`, scheduled via user crontab for 2026-06-20) flags whether new
-jobs are being classified at all. **Before reading 1E-2 as NO-GO**, confirm the share isn't an
-artifact of URL-only blindness; if it is, upgrade to DOM-level classification (open the apply page
-with the existing Playwright runtime) before deciding.
 
 **1E-2 The decision (after the data window):** run the report; record the numbers and the chosen
 branch in this plan's progress log. Then execute exactly one branch:
@@ -439,14 +419,3 @@ reality; `ruff check .`, `mypy src`, full pytest green.
   Live-box install + next-digest verification still pending. Noted: `tests/test_cron.py`'s 9
   `run_job("discover")` tests share the real `data/discover.lock` (no injected lock), so they fail
   while any live `/discover` runs — a pre-existing P1B test-isolation flake, not 1A.
-- 2026-06-13 — **1E-1 shipped** (sub-plan `2026-06-11-p1e1-ats-recon.md`): `cvflow.recon`
-  (`classify_ats` + one-hop redirect resolve), nullable `ats` column + `set_ats`, discovery/
-  analyze_jd tagging, `python -m cvflow.recon report`. Commits `cbac315`/`075ef73`/`96df990`/
-  `939dcd4`/`851f0fe`. Started the automation-decision data clock; 1E-2 pending the 2–3 week window.
-  Live deploy needs a gateway restart to respawn the MCP server.
-- 2026-06-13 — **recon health-check added** (`5ef8c2e`): `python -m cvflow.recon healthcheck` +
-  `scripts/recon-healthcheck.sh`, scheduled once via the user crontab (`0 9 20 6 *` → 2026-06-20)
-  to verify the URL classifier actually tags *new* (post-tagging) jobs. Baseline run 2026-06-13
-  reads SUSPICIOUS as expected (the 69 in-window jobs pre-date tagging). Recorded the **URL-only
-  under-counting caveat** under 1E above; gateway restarted by the founder. **Action 2026-06-20:**
-  review `~/recon-healthcheck-2026-06-20.txt`, then delete the crontab line.

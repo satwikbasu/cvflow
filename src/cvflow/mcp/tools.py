@@ -250,7 +250,6 @@ class CvflowTools:
     def analyze_jd(self, job_id: str, *, jd_text: str | None = None) -> dict[str, Any]:
         """Fetch (or accept), analyze, persist, and return a JD analysis dict."""
         from cvflow.analysis import fetch_jd
-        from cvflow.recon import classify_ats
 
         app = self._store.get(job_id)
         if app is None:
@@ -258,7 +257,6 @@ class CvflowTools:
         text = jd_text if jd_text is not None else fetch_jd(app.jd_url)
         analysis = self._analyzer.analyze(text)
         self._store.save_analysis(job_id, analysis)
-        self._store.set_ats(job_id, classify_ats(app.jd_url, fetch_redirect=True))
         result: dict[str, Any] = json.loads(analysis.to_json())
         return result
 
