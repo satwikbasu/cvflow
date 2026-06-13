@@ -12,7 +12,11 @@ from __future__ import annotations
 import logging
 import urllib.error
 import urllib.request
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
+
+if TYPE_CHECKING:
+    from cvflow.storage import ApplicationStore
 
 logger = logging.getLogger(__name__)
 
@@ -86,3 +90,74 @@ def classify_ats(url: str, fetch_redirect: bool = False) -> str:
         return label
     resolved = _resolve_one_hop(url)
     return _classify_host(urlsplit(resolved).netloc) if resolved else "other"
+
+
+def build_report(store: ApplicationStore) -> dict[str, object]:
+    """Per-ATS counts of presented jobs and approved (decision='apply') jobs.
+
+    Untagged applications (``ats IS NULL``) and the literal ``other`` label both
+    bucket under ``other`` so percentages cover the full presented set.
+    """
+    conn = store._conn  # same connection; read-only aggregate
+    presented: dict[str, int] = {}
+    for row in conn.execute(
+        "SELECT COALESCE(ats, 'other') AS k, COUNT(*) AS n FROM applications GROUP BY k"
+    ):
+        presented[row["k"]] = presented.get(row["k"], 0) + row["n"]
+    approved: dict[str, int] = {}
+    for row in conn.execute(
+        "SELECT COALESCE(a.ats, 'other') AS k, COUNT(*) AS n "
+        "FROM decisions d JOIN applications a ON a.job_id = d.job_id "
+        "WHERE d.decision = 'apply' GROUP BY k"
+    ):
+        approved[row["k"]] = approved.get(row["k"], 0) + row["n"]
+    return {
+        "presented": presented,
+        "approved": approved,
+        "totals": {
+            "presented": sum(presented.values()),
+            "approved": sum(approved.values()),
+        },
+    }
+
+
+def format_report(report: dict[str, object]) -> str:
+    presented: dict[str, int] = report["presented"]  # type: ignore[assignment]
+    approved: dict[str, int] = report["approved"]  # type: ignore[assignment]
+    totals: dict[str, int] = report["totals"]  # type: ignore[assignment]
+    p_total = max(totals["presented"], 1)
+    a_total = max(totals["approved"], 1)
+    lines = ["ATS recon report", ""]
+    lines.append(f"{'ats':<16}{'presented':>12}{'approved':>12}")
+    for label in ATS_LABELS:
+        p = presented.get(label, 0)
+        a = approved.get(label, 0)
+        if p == 0 and a == 0:
+            continue
+        lines.append(
+            f"{label:<16}{p:>6} ({100 * p // p_total:>3}%){a:>6} ({100 * a // a_total:>3}%)"
+        )
+    lines += ["", f"totals: presented={totals['presented']} approved={totals['approved']}"]
+    gh_lever = approved.get("greenhouse", 0) + approved.get("lever", 0)
+    share = 100 * gh_lever // a_total
+    lines.append(f"Greenhouse+Lever share of approved: {share}% (go/no-go >= ~20%)")
+    return "\n".join(lines)
+
+
+def _main(argv: list[str] | None = None) -> int:
+    import argparse
+
+    from cvflow.config import load_config
+    from cvflow.storage import ApplicationStore
+
+    parser = argparse.ArgumentParser(prog="cvflow.recon")
+    parser.add_argument("command", choices=["report"])
+    parser.parse_args(argv)
+    config = load_config("config.yaml")
+    store = ApplicationStore(config.storage.db_path)
+    print(format_report(build_report(store)))
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(_main())

@@ -67,3 +67,45 @@ def test_persist_tagging_contract() -> None:
     store.add("j", "Acme", "Eng", url)
     store.set_ats("j", classify_ats(url))
     assert store.get("j").ats == "lever"
+
+
+def _seed(store) -> None:
+    rows = [
+        ("g1", "greenhouse"), ("g2", "greenhouse"),
+        ("l1", "lever"), ("o1", "other"), ("o2", None),
+    ]
+    for jid, ats in rows:
+        store.add(jid, "Co", "R", "https://x/" + jid)
+        if ats:
+            store.set_ats(jid, ats)
+    store.add_decision(job_id="g1", decision="apply")
+    store.add_decision(job_id="l1", decision="apply")
+    store.add_decision(job_id="o1", decision="skip")
+
+
+def test_build_report_counts_presented_and_approved() -> None:
+    from cvflow.recon import build_report
+    from cvflow.storage import ApplicationStore
+
+    store = ApplicationStore(":memory:")
+    _seed(store)
+    rep = build_report(store)
+    assert rep["presented"]["greenhouse"] == 2
+    assert rep["presented"]["lever"] == 1
+    assert rep["presented"]["other"] == 2  # explicit "other" + untagged
+    assert rep["approved"]["greenhouse"] == 1
+    assert rep["approved"]["lever"] == 1
+    assert rep["approved"].get("other", 0) == 0
+    assert rep["totals"] == {"presented": 5, "approved": 2}
+
+
+def test_format_report_is_a_table_string() -> None:
+    from cvflow.recon import build_report, format_report
+    from cvflow.storage import ApplicationStore
+
+    store = ApplicationStore(":memory:")
+    _seed(store)
+    text = format_report(build_report(store))
+    assert "greenhouse" in text and "%" in text
+    # 2 of 2 approvals are GH+Lever -> 100% share line
+    assert "Greenhouse+Lever share of approved: 100%" in text
