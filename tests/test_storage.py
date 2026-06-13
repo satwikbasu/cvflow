@@ -256,3 +256,45 @@ def test_decisions_log_roundtrip():
     apply_rows = [r for r in rows if r["decision"] == "apply"]
     assert apply_rows[0]["role_family"] == "devops"
     assert apply_rows[0]["ctc_lpa"] == 18.0
+
+
+def test_migration_adds_meta_columns_and_jd_table(tmp_path):
+    import sqlite3
+    db = tmp_path / "old.db"
+    # Simulate a pre-this-change DB: applications without the new columns, no job_descriptions.
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        "CREATE TABLE applications ("
+        "job_id TEXT PRIMARY KEY, company TEXT NOT NULL, role TEXT NOT NULL, "
+        "jd_url TEXT NOT NULL, status TEXT NOT NULL, discovered_at TEXT NOT NULL);"
+        "INSERT INTO applications (job_id, company, role, jd_url, status, discovered_at) "
+        "VALUES ('x:1','Acme','Dev','http://u','discovered','2026-01-01T00:00:00+00:00');"
+    )
+    conn.commit()
+    conn.close()
+
+    from cvflow.storage import ApplicationStore
+    store = ApplicationStore(db)               # runs _migrate
+    app = store.get("x:1")
+    assert app is not None and app.benchmark is None and app.fit_score is None
+    # second open is a no-op (idempotent)
+    ApplicationStore(db)
+
+
+def test_set_discovery_meta_and_jd_text_roundtrip(tmp_path):
+    from cvflow.storage import ApplicationStore
+    store = ApplicationStore(tmp_path / "db.sqlite")
+    store.add("x:1", "Acme", "Backend Engineer", "http://u")
+    store.set_discovery_meta(
+        "x:1", benchmark=82, fit_score=7, fit_reason="strong Go match",
+        concerns=["onsite"], cohort="N", ctc_lpa=12.5,
+    )
+    app = store.get("x:1")
+    assert app.benchmark == 82 and app.fit_score == 7 and app.cohort == "N"
+    assert app.fit_reason == "strong Go match" and app.ctc_lpa == 12.5
+    import json
+    assert json.loads(app.concerns) == ["onsite"]
+
+    assert store.get_jd_text("x:1") is None
+    store.set_jd_text("x:1", "full JD text here")
+    assert store.get_jd_text("x:1") == "full JD text here"

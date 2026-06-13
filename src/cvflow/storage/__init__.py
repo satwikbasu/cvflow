@@ -62,6 +62,12 @@ class Application:
     proof_screenshot_path: str | None = None
     proof_page_title: str | None = None
     otp_deadline: str | None = None
+    benchmark: int | None = None
+    fit_score: int | None = None
+    fit_reason: str | None = None
+    concerns: str | None = None          # JSON-encoded list[str]
+    cohort: str | None = None            # "M" | "N"
+    ctc_lpa: float | None = None
 
 
 _SCHEMA = """
@@ -109,6 +115,11 @@ CREATE TABLE IF NOT EXISTS decisions (
     ctc_lpa      REAL,
     concerns     TEXT
 );
+CREATE TABLE IF NOT EXISTS job_descriptions (
+    job_id      TEXT PRIMARY KEY REFERENCES applications(job_id),
+    description TEXT NOT NULL,
+    scraped_at  TEXT NOT NULL
+);
 """
 
 
@@ -136,12 +147,19 @@ class ApplicationStore:
         }
         # column name -> SQL type; all nullable, additive only (never the gate columns).
         added_columns = {
+            "applied_at": "TEXT",
             "tailored_pdf_path": "TEXT",
             "confirmation_ref": "TEXT",
             "proof_url": "TEXT",
             "proof_screenshot_path": "TEXT",
             "proof_page_title": "TEXT",
             "otp_deadline": "TEXT",
+            "benchmark": "INTEGER",
+            "fit_score": "INTEGER",
+            "fit_reason": "TEXT",
+            "concerns": "TEXT",
+            "cohort": "TEXT",
+            "ctc_lpa": "REAL",
         }
         for col, col_type in added_columns.items():
             if col not in existing:
@@ -167,6 +185,12 @@ class ApplicationStore:
             proof_screenshot_path=row["proof_screenshot_path"],
             proof_page_title=row["proof_page_title"],
             otp_deadline=row["otp_deadline"],
+            benchmark=row["benchmark"],
+            fit_score=row["fit_score"],
+            fit_reason=row["fit_reason"],
+            concerns=row["concerns"],
+            cohort=row["cohort"],
+            ctc_lpa=row["ctc_lpa"],
         )
 
     def add(self, job_id: str, company: str, role: str, jd_url: str) -> Application:
@@ -261,6 +285,37 @@ class ApplicationStore:
             "UPDATE applications SET otp_deadline = ? WHERE job_id = ?", (deadline, job_id)
         )
         self._conn.commit()
+
+    def set_discovery_meta(
+        self, job_id: str, *, benchmark: int | None, fit_score: int | None,
+        fit_reason: str | None, concerns: list[str] | None, cohort: str | None,
+        ctc_lpa: float | None,
+    ) -> None:
+        """Persist discovery ranking signals (additive; never touches status/approval)."""
+        self._require(job_id)
+        self._conn.execute(
+            "UPDATE applications SET benchmark = ?, fit_score = ?, fit_reason = ?, "
+            "concerns = ?, cohort = ?, ctc_lpa = ? WHERE job_id = ?",
+            (benchmark, fit_score, fit_reason, json.dumps(concerns or []), cohort, ctc_lpa, job_id),
+        )
+        self._conn.commit()
+
+    def set_jd_text(self, job_id: str, description: str) -> None:
+        """Store the raw scraped JD text for later analysis / Q&A (upsert)."""
+        self._require(job_id)
+        self._conn.execute(
+            "INSERT INTO job_descriptions (job_id, description, scraped_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(job_id) DO UPDATE SET description = excluded.description, "
+            "scraped_at = excluded.scraped_at",
+            (job_id, description, _now()),
+        )
+        self._conn.commit()
+
+    def get_jd_text(self, job_id: str) -> str | None:
+        row = self._conn.execute(
+            "SELECT description FROM job_descriptions WHERE job_id = ?", (job_id,)
+        ).fetchone()
+        return row["description"] if row is not None else None
 
     def list_awaiting_otp(self) -> list[Application]:
         """Return apps with a non-NULL otp_deadline (an OTP wait is pending)."""
