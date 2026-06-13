@@ -331,7 +331,18 @@ with citations; an unanswerable one lands in `unanswered`), prerequisite errors,
 4000 chars, `mark_applied` blocked from non-approved states; live: full cycle digest → review →
 `/apply` → kit in chat → `mark_applied` reflected in `status_report`.
 
-### [ ] 1E — ATS recon → the automation go/no-go (supersedes Phase 12)
+### [x] 1E — ATS recon → the automation go/no-go (supersedes Phase 12)
+
+> **DECIDED 2026-06-13 — recon dropped, branch ≈ NO-GO (server-side automation).** The recon
+> instrument was built then **fully reverted** (`01ce6ed`). Two reasons: (1) the founder chose the
+> **browser-extension** automation direction (Fable §3bis client-side path) — an extension runs in
+> the user's real browser and sees the actual loaded apply form regardless of ATS, so "which ATS
+> hosts this job" no longer gates anything; (2) inspection showed discovery only ever stores
+> LinkedIn/Indeed/Naukri **listing** URLs (never the employer apply URL — JobSpy's `job_url_direct`
+> is unused, Naukri/LinkedIn are login-walled), so URL-based classification could not have answered
+> the go/no-go anyway. **Do not rebuild ATS recon.** If/when automation is picked up, it is the
+> client-side extension, scoped in its own spec (P2 territory). The `automation/` + `auth/` dirs stay
+> as-is for now (not archived — that cleanup is deferred with the extension decision).
 
 **Decision rule (from `architecture-review-fable.md` §3bis):** collect ≥2–3 weeks of real digests;
 if **Greenhouse + Lever ≥ ~20% of *approved* jobs**, execute branch GO; else branch NO-GO. Never:
@@ -419,3 +430,9 @@ reality; `ruff check .`, `mypy src`, full pytest green.
   Live-box install + next-digest verification still pending. Noted: `tests/test_cron.py`'s 9
   `run_job("discover")` tests share the real `data/discover.lock` (no injected lock), so they fail
   while any live `/discover` runs — a pre-existing P1B test-isolation flake, not 1A.
+- 2026-06-13 — **1E ATS recon built then fully reverted** (`01ce6ed` reverts
+  `cbac315`/`075ef73`/`96df990`/`939dcd4`/`851f0fe`/`1af57f3`/`5ef8c2e`/`54474d9`). Decision: drop
+  recon; automation direction = **browser extension** (Fable §3bis), which is ATS-agnostic, so the
+  go/no-go recon is moot. Also confirmed discovery stores only board *listing* URLs (no apply URL),
+  so URL classification couldn't answer it regardless. Cron health-check + `$HOME` output removed.
+  **Next codework = 1C (multi-tenant seams)** or 1D (apply kit) — automation (extension) is parked.
