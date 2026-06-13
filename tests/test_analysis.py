@@ -13,6 +13,7 @@ from cvflow.analysis import (
     JDAnalyzer,
     JDFetchError,
     fetch_jd,
+    resolve_tailoring_analysis,
 )
 from cvflow.storage import ApplicationStore, UnknownJob
 
@@ -130,3 +131,95 @@ def test_save_analysis_unknown_job_raises() -> None:
     store = ApplicationStore(":memory:")
     with pytest.raises(UnknownJob):
         store.save_analysis("linkedin:404", _analysis())
+
+
+# --- resolve_tailoring_analysis ---
+
+
+class _FakeStore:
+    def __init__(self, *, crux=None, jd_text=None, app=None):
+        self._crux = crux
+        self._jd_text = jd_text
+        self._app = app
+        self.saved = None
+
+    def get_crux(self, job_id):
+        return _json.dumps(self._crux) if self._crux else None
+
+    def get_jd_text(self, job_id):
+        return self._jd_text
+
+    def get(self, job_id):
+        return self._app
+
+    def save_analysis(self, job_id, analysis):
+        self.saved = analysis
+
+
+class _FakeAnalyzer:
+    def __init__(self, result):
+        self._result = result
+        self.calls = 0
+
+    def analyze(self, text):
+        self.calls += 1
+        return self._result
+
+
+class _RaisingAnalyzer:
+    def analyze(self, text):
+        raise RuntimeError("LLM down")
+
+
+def test_crux_path_maps_three_fields() -> None:
+    store = _FakeStore(crux={
+        "must_have_skills": ["go", "python"],
+        "tech_stack": ["go", "python", "postgresql", "redis"],
+        "seniority_signal": "junior",
+        "applicant_instructions": "mention OSS",
+    })
+    ana = resolve_tailoring_analysis(
+        "x:1", store=store, analyzer=_FakeAnalyzer(None), use_jd_analysis=False,
+    )
+    assert ana.required_skills == ["go", "python", "postgresql", "redis"]
+    assert ana.preferred_quals == ["postgresql", "redis"]
+    assert ana.seniority == "junior"
+    assert ana.applicant_instructions == ["mention OSS"]
+
+
+def test_analysis_path_uses_stored_text_without_fetch() -> None:
+    expected = JDAnalysis(
+        required_skills=["go"],
+        preferred_quals=[],
+        seniority="mid",
+        tone="",
+        applicant_instructions=[],
+    )
+    analyzer = _FakeAnalyzer(expected)
+    store = _FakeStore(jd_text="full JD text", crux={"tech_stack": ["x"]})
+    ana = resolve_tailoring_analysis(
+        "x:1",
+        store=store,
+        analyzer=analyzer,
+        use_jd_analysis=True,
+        fetch_fn=lambda url: (_ for _ in ()).throw(AssertionError("should not fetch")),
+    )
+    assert analyzer.calls == 1 and ana is expected and store.saved is expected
+
+
+def test_analysis_path_falls_back_to_crux_and_notifies_on_failure() -> None:
+    store = _FakeStore(
+        jd_text="text",
+        crux={"tech_stack": ["go"], "seniority_signal": "junior"},
+    )
+    notices: list[str] = []
+    ana = resolve_tailoring_analysis(
+        "x:1",
+        store=store,
+        analyzer=_RaisingAnalyzer(),
+        use_jd_analysis=True,
+        notify=notices.append,
+        fetch_fn=lambda url: "text",
+    )
+    assert ana.required_skills == ["go"]  # crux fallback
+    assert notices and "falling back" in notices[0].lower()
