@@ -256,3 +256,41 @@ def test_decisions_log_roundtrip():
     apply_rows = [r for r in rows if r["decision"] == "apply"]
     assert apply_rows[0]["role_family"] == "devops"
     assert apply_rows[0]["ctc_lpa"] == 18.0
+
+
+def test_set_ats_persists_and_reads_back() -> None:
+    store = ApplicationStore(":memory:")
+    store.add("j1", "Acme", "Eng", "https://boards.greenhouse.io/acme/jobs/1")
+    assert store.get("j1").ats is None
+    store.set_ats("j1", "greenhouse")
+    assert store.get("j1").ats == "greenhouse"
+
+
+def test_set_ats_unknown_job_raises() -> None:
+    store = ApplicationStore(":memory:")
+    with pytest.raises(UnknownJob):
+        store.set_ats("nope", "lever")
+
+
+def test_migrate_adds_ats_to_legacy_db(tmp_path: Path) -> None:
+    import sqlite3
+
+    db = tmp_path / "legacy.db"
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "CREATE TABLE applications (job_id TEXT PRIMARY KEY, company TEXT NOT NULL, "
+        "role TEXT NOT NULL, jd_url TEXT NOT NULL, status TEXT NOT NULL, "
+        "discovered_at TEXT NOT NULL, applied_at TEXT)"
+    )
+    conn.execute(
+        "INSERT INTO applications (job_id, company, role, jd_url, status, discovered_at) "
+        "VALUES ('old', 'Co', 'R', 'https://x', ?, '2026-01-01')",
+        (Status.DISCOVERED.value,),
+    )
+    conn.commit()
+    conn.close()
+
+    store = ApplicationStore(db)  # _migrate runs
+    assert store.get("old").ats is None
+    store.set_ats("old", "ashby")
+    assert store.get("old").ats == "ashby"

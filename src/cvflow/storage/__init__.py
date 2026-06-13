@@ -62,6 +62,7 @@ class Application:
     proof_screenshot_path: str | None = None
     proof_page_title: str | None = None
     otp_deadline: str | None = None
+    ats: str | None = None
 
 
 _SCHEMA = """
@@ -78,7 +79,8 @@ CREATE TABLE IF NOT EXISTS applications (
     proof_url             TEXT,
     proof_screenshot_path TEXT,
     proof_page_title      TEXT,
-    otp_deadline          TEXT
+    otp_deadline          TEXT,
+    ats                   TEXT
 );
 CREATE TABLE IF NOT EXISTS jd_analyses (
     job_id    TEXT PRIMARY KEY REFERENCES applications(job_id),
@@ -142,6 +144,7 @@ class ApplicationStore:
             "proof_screenshot_path": "TEXT",
             "proof_page_title": "TEXT",
             "otp_deadline": "TEXT",
+            "ats": "TEXT",
         }
         for col, col_type in added_columns.items():
             if col not in existing:
@@ -167,6 +170,7 @@ class ApplicationStore:
             proof_screenshot_path=row["proof_screenshot_path"],
             proof_page_title=row["proof_page_title"],
             otp_deadline=row["otp_deadline"],
+            ats=row["ats"],
         )
 
     def add(self, job_id: str, company: str, role: str, jd_url: str) -> Application:
@@ -259,6 +263,14 @@ class ApplicationStore:
         self._require(job_id)
         self._conn.execute(
             "UPDATE applications SET otp_deadline = ? WHERE job_id = ?", (deadline, job_id)
+        )
+        self._conn.commit()
+
+    def set_ats(self, job_id: str, ats: str) -> None:
+        """Tag an application with its classified ATS. Additive — no status change."""
+        self._require(job_id)
+        self._conn.execute(
+            "UPDATE applications SET ats = ? WHERE job_id = ?", (ats, job_id)
         )
         self._conn.commit()
 
