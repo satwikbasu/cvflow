@@ -177,6 +177,73 @@ def test_plan_has_no_upper_cap_keeps_all_relevant_picks() -> None:
     assert plan.selected_project_ids == ["ipsec-dashboard", "crudbot", "third"]
 
 
+# --- rephrase pass ---
+
+
+def _order_json() -> str:
+    return json.dumps(
+        {"section_order": ["experience", "projects", "skills"],
+         "selected_project_ids": ["crudbot"], "diff_narration": "x"}
+    )
+
+
+class _TwoCallProvider:
+    """First generate() -> order JSON; second -> rephrase JSON."""
+    def __init__(self, order_payload: str, rephrase_payload: str) -> None:
+        self._payloads = [order_payload, rephrase_payload]
+        self.prompts: list[str] = []
+
+    def generate(self, prompt: str) -> str:
+        self.prompts.append(prompt)
+        return self._payloads[min(len(self.prompts) - 1, len(self._payloads) - 1)]
+
+
+def _exp_master() -> Master:
+    return Master(
+        root=Path("/nonexistent"),
+        section_order=["experience", "projects"],
+        sections={
+            "experience": Section(
+                "experience", "\\resumeItem{Built python flask APIs for tooling}"
+            ),
+            "projects": Section("projects", "P"),
+        },
+        projects=[Project("crudbot", "\\resumeItem{Built a CRUD backend with postgres}")],
+    )
+
+
+def test_plan_keeps_clean_reword_rejects_fabrication() -> None:
+    rephrase = json.dumps({"rewrites": [
+        "Built python flask REST APIs for tooling",
+        "Built a CRUD backend with postgres at 1000 rps",
+    ]})
+    m = _exp_master()
+    t = ResumeTailor(
+        _TwoCallProvider(_order_json(), rephrase),
+        m, fact_corpus="rest microservices", rephrase=True,
+    )
+    plan = t.plan(_jd())
+    assert plan.rephrased["Built python flask APIs for tooling"] == \
+        "Built python flask REST APIs for tooling"
+    assert "Built a CRUD backend with postgres" not in plan.rephrased
+
+
+def test_plan_rephrase_disabled_makes_no_second_call() -> None:
+    m = _exp_master()
+    p = _TwoCallProvider(_order_json(), "{}")
+    t = ResumeTailor(p, m, rephrase=False)
+    plan = t.plan(_jd())
+    assert plan.rephrased == {}
+    assert len(p.prompts) == 1
+
+
+def test_plan_rephrase_bad_json_falls_back_silently() -> None:
+    m = _exp_master()
+    t = ResumeTailor(_TwoCallProvider(_order_json(), "not json"), m, rephrase=True)
+    plan = t.plan(_jd())  # must not raise
+    assert plan.rephrased == {}
+
+
 # --- render + no-new-facts ---
 
 

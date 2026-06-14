@@ -17,14 +17,17 @@ Projects are chosen by JD relevance (e.g. a Java/Spring Boot role → CRUDbot).
 from __future__ import annotations
 
 import json
+import logging
 import re
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
 from cvflow.analysis import JDAnalysis
+
+logger = logging.getLogger("cvflow.resume")
 
 __all__ = [
     "Section",
@@ -200,6 +203,7 @@ class TailoringPlan:
     section_order: list[str]
     selected_project_ids: list[str]
     diff_narration: str
+    rephrased: dict[str, str] = field(default_factory=dict)
 
 
 _PLAN_PROMPT = (
@@ -213,6 +217,18 @@ _PLAN_PROMPT = (
     "## Available projects (id: content)\n{projects}\n\n"
     "## Target job\nrequired_skills: {req}\npreferred_quals: {pref}\nseniority: {sen}\n"
     "\nUser feedback to incorporate (optional): {feedback}\n"
+)
+
+
+_REPHRASE_PROMPT = (
+    "Reword each résumé bullet below to align with the target job's language and emphasis. "
+    "HARD RULE: do NOT add, remove, or invent any fact — no new tools, skills, numbers, "
+    "employers, metrics, or claims. Only rephrase what each bullet already states; keep every "
+    "concrete detail. Return ONLY a JSON object {{\"rewrites\": [...]}} — a list of the reworded "
+    "bullets in the SAME ORDER as the input, one string per input bullet.\n\n"
+    "## Target job\nrequired_skills: {req}\npreferred_quals: {pref}\n"
+    "User feedback to incorporate (optional): {feedback}\n\n"
+    "## Bullets (in order)\n{bullets}\n"
 )
 
 
@@ -288,11 +304,54 @@ class ResumeTailor:
                 picks.append(pid)
                 seen_pids.add(pid)
 
+        rephrased = self._rephrase_bullets(picks, jd, feedback) if self._rephrase else {}
+
         return TailoringPlan(
             section_order=order,
             selected_project_ids=picks,
             diff_narration=str(d.get("diff_narration", "")),
+            rephrased=rephrased,
         )
+
+    def _eligible_bullets(self, selected_pids: list[str]) -> list[str]:
+        """Experience bullets + the selected projects' bullets, in order."""
+        bodies: list[str] = []
+        text = self._master.sections.get("experience")
+        if text is not None:
+            bodies += [b for _, _, b in _resume_item_bodies(text.content)]
+        by_id = {p.project_id: p for p in self._master.projects}
+        for pid in selected_pids:
+            proj = by_id.get(pid)
+            if proj is not None:
+                bodies += [b for _, _, b in _resume_item_bodies(proj.content)]
+        return bodies
+
+    def _rephrase_bullets(
+        self, selected_pids: list[str], jd: JDAnalysis, feedback: str | None
+    ) -> dict[str, str]:
+        """LLM-reword the eligible bullets; keep only rewords that pass the fact guard. Any
+        failure (no bullets, bad JSON, provider error) falls back to originals — never raises."""
+        bullets = self._eligible_bullets(selected_pids)
+        if not bullets:
+            return {}
+        prompt = _REPHRASE_PROMPT.format(
+            req=", ".join(jd.required_skills),
+            pref=", ".join(jd.preferred_quals),
+            feedback=feedback or "(none)",
+            bullets="\n".join(f"{i}. {b}" for i, b in enumerate(bullets)),
+        )
+        try:
+            raw = self._provider.generate(prompt)
+            rewrites = json.loads(_strip_code_fence(raw)).get("rewrites", [])
+        except (ValueError, json.JSONDecodeError, AttributeError, KeyError, TypeError) as exc:
+            logger.warning("rephrase pass failed; keeping original bullets: %s", exc)
+            return {}
+        out: dict[str, str] = {}
+        for original, reword in zip(bullets, rewrites, strict=False):
+            if isinstance(reword, str) and reword.strip() and reword != original \
+                    and self._guard_ok(original, reword):
+                out[original] = reword
+        return out
 
     def _render_projects(self, selected: list[str]) -> str:
         by_id = {p.project_id: p for p in self._master.projects}
