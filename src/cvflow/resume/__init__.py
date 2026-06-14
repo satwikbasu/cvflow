@@ -88,6 +88,46 @@ def _numbers(text: str) -> set[str]:
     return {m.replace(",", "") for m in _NUM_RE.findall(text)}
 
 
+_RESUME_ITEM_OPEN = "\\resumeItem{"
+
+
+def _resume_item_bodies(text: str) -> list[tuple[int, int, str]]:
+    """Find each ``\\resumeItem{...}`` and return (body_start, body_end, body) with brace
+    balancing so nested ``{...}`` (e.g. ``\\textbf{}``) is handled. ``body_end`` is the index
+    of the matching close brace (exclusive of it)."""
+    spans: list[tuple[int, int, str]] = []
+    i = 0
+    while True:
+        j = text.find(_RESUME_ITEM_OPEN, i)
+        if j == -1:
+            break
+        start = j + len(_RESUME_ITEM_OPEN)
+        depth = 1
+        k = start
+        while k < len(text) and depth:
+            if text[k] == "{":
+                depth += 1
+            elif text[k] == "}":
+                depth -= 1
+            k += 1
+        end = k - 1  # index of the matching close brace
+        spans.append((start, end, text[start:end]))
+        i = k
+    return spans
+
+
+def _substitute_bullets(text: str, rephrased: dict[str, str]) -> str:
+    """Replace each ``\\resumeItem`` body with ``rephrased[body]`` when present (else leave it)."""
+    out: list[str] = []
+    last = 0
+    for start, end, body in _resume_item_bodies(text):
+        out.append(text[last:start])
+        out.append(rephrased.get(body, body))
+        last = end
+    out.append(text[last:])
+    return "".join(out)
+
+
 class TailoringError(Exception):
     """Raised when a tailoring plan is invalid or would add facts."""
 

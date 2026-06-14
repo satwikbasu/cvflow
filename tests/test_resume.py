@@ -17,6 +17,8 @@ from cvflow.resume import (
     Section,
     TailoringError,
     TailoringPlan,
+    _resume_item_bodies,
+    _substitute_bullets,
     parse_master,
 )
 
@@ -254,3 +256,20 @@ def test_compile_real_master_produces_pdf(tmp_path: Path) -> None:
     tailor = ResumeTailor(_FakeProvider("{}"), master)
     pdf = tailor.compile_master(tmp_path)
     assert pdf.exists() and pdf.stat().st_size > 0
+
+
+# --- _resume_item_bodies + _substitute_bullets ---
+
+
+def test_resume_item_bodies_extracts_inner_text() -> None:
+    tex = "x\n  \\resumeItem{Built APIs}\n  \\resumeItem{Designed \\textbf{Docker} swarm}\n"
+    bodies = [b for _, _, b in _resume_item_bodies(tex)]
+    assert bodies == ["Built APIs", "Designed \\textbf{Docker} swarm"]
+
+
+def test_substitute_bullets_replaces_only_mapped_bodies() -> None:
+    tex = "\\resumeItem{Built APIs}\n\\resumeItem{Kept as-is}\n"
+    out = _substitute_bullets(tex, {"Built APIs": "Built REST microservices"})
+    assert "\\resumeItem{Built REST microservices}" in out
+    assert "\\resumeItem{Kept as-is}" in out  # unmapped bodies untouched
+    assert "Built APIs" not in out
