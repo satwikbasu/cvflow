@@ -27,29 +27,41 @@ rather than an exact line match.
 ## Architecture / flow
 
 All changes live in `src/cvflow/resume/__init__.py` (plus config + wiring). The existing
-plan → render → compile → send path is preserved; a rephrase pass is inserted.
+plan → render → compile → send path is preserved; rewording is folded into the **single** existing
+ordering call — gpt-oss-120b is a reasoning model and returns ordering + selection + rewrites in
+one structured response, so we never spend a second request against the free-tier rate limit
+(5 req/min on Cerebras).
 
 ```
 plan(jd, feedback):
-  1. section ordering  (LLM call #1, unchanged: never-drop reorder + project floor)
-  2. if config.resume.rephrase:
-        bullets = extract \resumeItem{...} from experience.tex + each SELECTED project file
-        rewrites = LLM call #2  (all bullets + JD required/preferred skills → reworded bullets)
-        accepted = { original: reword for each bullet if _guard_ok(original, reword) else original }
-     else: accepted = {}            # behaves exactly like today
+  1. candidates = (if config.resume.rephrase) extract \resumeItem{...} from experience.tex +
+        EVERY project file (fixed before the call; respects disabled_sections) else []
+  2. ONE LLM call → JSON {section_order, selected_project_ids, rewrites, diff_narration}
+        - with the rewrites ask + numbered candidates when rephrase is on; ordering-only prompt
+          when off. The prompt foregrounds REWORDING as the primary task (ordering/selection are
+          secondary light touches) — per the locked decision "rephrasing > reordering".
+  3. order = never-drop reorder, then drop config-disabled sections; picks = floor logic
+  4. accepted = { original: reword for candidate i if _guard_ok(original, reword) else dropped }
+        (best-effort: a missing/malformed rewrites field → {} = reorder-only, never raises;
+         a hard failure of the single call raises, same as pre-feature — but it's one call now)
   → TailoringPlan(section_order, selected_project_ids, diff_narration, rephrased=accepted)
 
 tailored_document(plan):
   - heading: verbatim (already fixed)
   - experience + selected projects: emit the section/​project file text with each
-    \resumeItem{orig} replaced by \resumeItem{accepted[orig]} (inline, not \input)
+    \resumeItem{orig} replaced by \resumeItem{accepted[orig]} (inline, not \input).
+    Rewrites for unselected projects are simply never applied (content-keyed map).
   - education, skills, certifications, titles, dates, companies: verbatim (\input as today)
 
 compile_tailored / send-to-Telegram: unchanged.
 ```
 
-Emphasis: the LLM prompt foregrounds **rewording for JD alignment**; section reordering stays but
-is secondary. The diff leads with the wording changes.
+Emphasis: the LLM prompt foregrounds **rewording for JD alignment** as the primary task; section
+reordering/selection stay but are secondary. The diff leads with the wording changes.
+
+> **Design note (2026-06-14, post-implementation):** the first cut used a *separate* second LLM
+> call for rewording. That doubled the per-`/tailor` Cerebras footprint against a 5-req/min key and
+> caused 429s. Folded into the single ordering call (above). All other decisions are unchanged.
 
 ## Components
 
@@ -91,15 +103,19 @@ string, leaving every other line — `\resumeSubheading{title}{dates}{company}{l
 start/end, `\resumeProjectHeading`, comments — untouched. Only `\resumeItem` bodies in
 **experience.tex** and the **selected** project files are eligible.
 
-### 3. Rephrase LLM call
+### 3. The combined tailoring call
 
-One call to the existing tailoring provider (Cerebras `gpt-oss-120b`). Prompt: "Reword each of
-these résumé bullets to align with the target job's language. You MUST NOT add, remove, or invent
-any fact — no new tools, skills, numbers, employers, or claims; only rephrase what is already
-stated. Return JSON: a list mapping each input bullet (by index) to its reworded text." Inputs:
-the ordered list of eligible bullets + the JD `required_skills`/`preferred_quals`. Failure or
-unparseable output → log + skip rephrasing (all bullets stay original); never blocks tailoring
-(invariant 3).
+The **single** existing call to the tailoring provider (Cerebras `gpt-oss-120b`) now also returns
+the rewrites. Prompt (`_PLAN_WITH_REWRITES_PROMPT`) foregrounds rewording as the primary task: "Your
+PRIMARY job is to REWORD the listed bullets … Reordering/selection are secondary. HARD RULE: do NOT
+add, remove, or invent any fact … only rephrase what each bullet states. Return JSON: rewrites (one
+per numbered bullet, same order — the main output), section_order, selected_project_ids,
+diff_narration." Inputs: the numbered candidate bullets (experience + every project, fixed before
+the call) + sections + projects + JD skills + optional feedback. When `rephrase` is off, the
+ordering-only `_PLAN_PROMPT` is used instead (still one call). A missing/malformed `rewrites` field
+→ reorder-only (best-effort, never raises); only a hard failure of the single call raises — and
+it's the same one call the tailorer always made, so the free-tier footprint is unchanged from
+pre-feature. The accepted rewrites are kept only if they pass `_guard_ok`.
 
 ### 4. Diff / review gate
 
@@ -151,10 +167,11 @@ Unknown names in the mapping are ignored harmlessly (they match no real section)
 
 ## Data flow
 
-`/tailor n` → `run_tailor` → `request_review` → `ResumeTailor.plan` (order call + rephrase call +
-guard) → `compile_tailored` (renders with accepted rewords, Tectonic) → PDF + `diff()` →
-Telegram (PDF document + diff text). No new external calls beyond one extra Cerebras request per
-`/tailor`, well within the 5 RPM / 2400 RPD free tier.
+`/tailor n` → `run_tailor` → `request_review` → `ResumeTailor.plan` (ONE combined call: ordering +
+selection + rewrites, then the fact guard) → `compile_tailored` (renders with accepted rewords,
+Tectonic) → PDF + `diff()` → Telegram (PDF document + diff text). **No extra LLM calls** — the
+tailorer makes the same single Cerebras request it always did, so the 5 RPM / 2400 RPD free-tier
+footprint is unchanged.
 
 ## Edge cases
 

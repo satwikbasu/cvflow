@@ -205,25 +205,19 @@ def test_plan_disabled_removed_but_enabled_never_dropped() -> None:
     assert set(plan.section_order) == {"projects", "skills"}
 
 
-# --- rephrase pass ---
+# --- rephrase (folded into the single ordering call) ---
 
 
-def _order_json() -> str:
-    return json.dumps(
-        {"section_order": ["experience", "projects", "skills"],
-         "selected_project_ids": ["crudbot"], "diff_narration": "x"}
-    )
-
-
-class _TwoCallProvider:
-    """First generate() -> order JSON; second -> rephrase JSON."""
-    def __init__(self, order_payload: str, rephrase_payload: str) -> None:
-        self._payloads = [order_payload, rephrase_payload]
-        self.prompts: list[str] = []
-
-    def generate(self, prompt: str) -> str:
-        self.prompts.append(prompt)
-        return self._payloads[min(len(self.prompts) - 1, len(self._payloads) - 1)]
+def _combined_json(rewrites: object = None) -> str:
+    """The ONE tailoring response: ordering + selection + (optional) rewrites in one object."""
+    d: dict[str, object] = {
+        "section_order": ["experience", "projects", "skills"],
+        "selected_project_ids": ["crudbot"],
+        "diff_narration": "x",
+    }
+    if rewrites is not None:
+        d["rewrites"] = rewrites
+    return json.dumps(d)
 
 
 def _exp_master() -> Master:
@@ -241,14 +235,14 @@ def _exp_master() -> Master:
 
 
 def test_plan_keeps_clean_reword_rejects_fabrication() -> None:
-    rephrase = json.dumps({"rewrites": [
+    # Candidates fixed pre-call: [experience bullet, crudbot bullet]. The combined response
+    # rewords both; the fabricated-number reword is rejected by the fact guard.
+    payload = _combined_json(rewrites=[
         "Built python flask REST APIs for tooling",
         "Built a CRUD backend with postgres at 1000 rps",
-    ]})
-    m = _exp_master()
+    ])
     t = ResumeTailor(
-        _TwoCallProvider(_order_json(), rephrase),
-        m, fact_corpus="rest microservices", rephrase=True,
+        _FakeProvider(payload), _exp_master(), fact_corpus="rest microservices", rephrase=True
     )
     plan = t.plan(_jd())
     assert plan.rephrased["Built python flask APIs for tooling"] == \
@@ -256,39 +250,35 @@ def test_plan_keeps_clean_reword_rejects_fabrication() -> None:
     assert "Built a CRUD backend with postgres" not in plan.rephrased
 
 
-def test_plan_rephrase_disabled_makes_no_second_call() -> None:
-    m = _exp_master()
-    p = _TwoCallProvider(_order_json(), "{}")
-    t = ResumeTailor(p, m, rephrase=False)
+def test_plan_is_a_single_llm_call() -> None:
+    # Ordering + selection + rewording are ONE request — no second call against the rate limit.
+    p = _FakeProvider(_combined_json(rewrites=["Built python flask REST APIs for tooling"]))
+    ResumeTailor(p, _exp_master(), fact_corpus="rest", rephrase=True).plan(_jd())
+    assert len(p.prompts) == 1
+
+
+def test_plan_rephrase_disabled_no_rewrites() -> None:
+    p = _FakeProvider(_combined_json())  # no rewrites field; rephrase off
+    t = ResumeTailor(p, _exp_master(), rephrase=False)
     plan = t.plan(_jd())
     assert plan.rephrased == {}
     assert len(p.prompts) == 1
 
 
-def test_plan_rephrase_bad_json_falls_back_silently() -> None:
-    m = _exp_master()
-    t = ResumeTailor(_TwoCallProvider(_order_json(), "not json"), m, rephrase=True)
-    plan = t.plan(_jd())  # must not raise
-    assert plan.rephrased == {}
-
-
-def test_plan_rephrase_provider_error_degrades_to_reorder_only() -> None:
-    # A rate limit (e.g. Cerebras HTTP 429 -> LLMError) on the rephrase call must NOT fail
-    # tailoring — it degrades to the master wording (reorder-only), never raises.
-    class _OrderThenRaise:
-        def __init__(self) -> None:
-            self.prompts: list[str] = []
-
-        def generate(self, prompt: str) -> str:
-            self.prompts.append(prompt)
-            if len(self.prompts) == 1:
-                return _order_json()
-            raise RuntimeError("NIM POST ... -> HTTP 429: Too Many Requests")
-
-    t = ResumeTailor(_OrderThenRaise(), _exp_master(), rephrase=True)
-    plan = t.plan(_jd())  # must not raise despite the rephrase-call error
+def test_plan_malformed_rewrites_degrades_to_reorder_only() -> None:
+    # Valid ordering JSON but a junk rewrites field → reorder-only; never raises.
+    t = ResumeTailor(
+        _FakeProvider(_combined_json(rewrites="not a list")), _exp_master(), rephrase=True
+    )
+    plan = t.plan(_jd())
     assert plan.rephrased == {}
     assert plan.section_order  # ordering still happened
+
+
+def test_plan_unparseable_response_raises() -> None:
+    # If the single response isn't JSON at all, ordering can't proceed → TailoringError.
+    with pytest.raises(TailoringError):
+        ResumeTailor(_FakeProvider("not json"), _exp_master(), rephrase=True).plan(_jd())
 
 
 def test_render_applies_accepted_rewrites() -> None:

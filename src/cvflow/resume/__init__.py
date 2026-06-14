@@ -220,15 +220,23 @@ _PLAN_PROMPT = (
 )
 
 
-_REPHRASE_PROMPT = (
-    "Reword each résumé bullet below to align with the target job's language and emphasis. "
-    "HARD RULE: do NOT add, remove, or invent any fact — no new tools, skills, numbers, "
+_PLAN_WITH_REWRITES_PROMPT = (
+    "You tailor a resume. Your PRIMARY job is to REWORD the listed bullets so their wording "
+    "mirrors the target job's language and emphasis — this is where most of the tailoring value "
+    "is. Reordering sections and selecting projects are SECONDARY (light touches), not the focus.\n"
+    "REWORDING HARD RULE: do NOT add, remove, or invent any fact — no new tools, skills, numbers, "
     "employers, metrics, or claims. Only rephrase what each bullet already states; keep every "
-    "concrete detail. Return ONLY a JSON object {{\"rewrites\": [...]}} — a list of the reworded "
-    "bullets in the SAME ORDER as the input, one string per input bullet.\n\n"
-    "## Target job\nrequired_skills: {req}\npreferred_quals: {pref}\n"
-    "User feedback to incorporate (optional): {feedback}\n\n"
-    "## Bullets (in order)\n{bullets}\n"
+    "concrete detail. Make the wording count.\n"
+    "Return ONLY a JSON object: rewrites (a list of the reworded bullets in the SAME ORDER as the "
+    "numbered bullets below, one string per bullet — this is the main output), section_order (ALL "
+    "the given section names in your chosen order — reorder lightly for emphasis, do NOT omit "
+    "any), selected_project_ids (the most relevant project ids, most relevant first), "
+    "diff_narration (one short paragraph explaining the choices in plain language).\n\n"
+    "## Bullets to reword (in order) — THE MAIN TASK\n{bullets}\n\n"
+    "## Available sections (default order)\n{sections}\n\n"
+    "## Available projects (id: content)\n{projects}\n\n"
+    "## Target job\nrequired_skills: {req}\npreferred_quals: {pref}\nseniority: {sen}\n"
+    "\nUser feedback to incorporate (optional): {feedback}\n"
 )
 
 
@@ -259,16 +267,26 @@ class ResumeTailor:
         self._master_numbers = _numbers(corpus)
 
     def plan(self, jd: JDAnalysis, *, feedback: str | None = None) -> TailoringPlan:
-        prompt = _PLAN_PROMPT.format(
-            sections=", ".join(self._master.section_order),
-            projects="\n".join(
+        # ONE LLM call does ordering + project selection + (when rephrase is on) bullet rewording
+        # — gpt-oss-120b handles all three in a single structured response, so we never spend a
+        # second request against the free-tier rate limit.
+        candidates = self._candidate_bullets() if self._rephrase else []
+        common = {
+            "sections": ", ".join(self._master.section_order),
+            "projects": "\n".join(
                 f"- {p.project_id}: {p.content[:200]}" for p in self._master.projects
             ),
-            req=", ".join(jd.required_skills),
-            pref=", ".join(jd.preferred_quals),
-            sen=jd.seniority,
-            feedback=feedback or "(none)",
-        )
+            "req": ", ".join(jd.required_skills),
+            "pref": ", ".join(jd.preferred_quals),
+            "sen": jd.seniority,
+            "feedback": feedback or "(none)",
+        }
+        if candidates:
+            prompt = _PLAN_WITH_REWRITES_PROMPT.format(
+                bullets="\n".join(f"{i}. {b}" for i, b in enumerate(candidates)), **common
+            )
+        else:
+            prompt = _PLAN_PROMPT.format(**common)
         raw = self._provider.generate(prompt)
         try:
             d = json.loads(_strip_code_fence(raw))
@@ -312,7 +330,7 @@ class ResumeTailor:
                     picks.append(pid)
                     seen_pids.add(pid)
 
-        rephrased = self._rephrase_bullets(picks, jd, feedback) if self._rephrase else {}
+        rephrased = self._accept_rewrites(candidates, d.get("rewrites")) if candidates else {}
 
         return TailoringPlan(
             section_order=order,
@@ -321,46 +339,34 @@ class ResumeTailor:
             rephrased=rephrased,
         )
 
-    def _eligible_bullets(self, selected_pids: list[str]) -> list[str]:
-        """Experience bullets (unless disabled) + the selected projects' bullets, in order."""
+    def _candidate_bullets(self) -> list[str]:
+        """Bullets eligible for rewording: experience + every project's (each unless its section
+        is disabled), in a stable order fixed BEFORE the call. The model rewords all of them; only
+        those in rendered (selected) sections actually reach the PDF via ``_substitute_bullets``."""
         bodies: list[str] = []
         if "experience" not in self._disabled_sections:
             text = self._master.sections.get("experience")
             if text is not None:
                 bodies += [b for _, _, b in _resume_item_bodies(text.content)]
-        by_id = {p.project_id: p for p in self._master.projects}
-        for pid in selected_pids:
-            proj = by_id.get(pid)
-            if proj is not None:
+        if "projects" not in self._disabled_sections:
+            for proj in self._master.projects:
                 bodies += [b for _, _, b in _resume_item_bodies(proj.content)]
         return bodies
 
-    def _rephrase_bullets(
-        self, selected_pids: list[str], jd: JDAnalysis, feedback: str | None
-    ) -> dict[str, str]:
-        """LLM-reword the eligible bullets; keep only rewords that pass the fact guard. Any
-        failure (no bullets, bad JSON, provider error) falls back to originals — never raises."""
-        bullets = self._eligible_bullets(selected_pids)
-        if not bullets:
-            return {}
-        prompt = _REPHRASE_PROMPT.format(
-            req=", ".join(jd.required_skills),
-            pref=", ".join(jd.preferred_quals),
-            feedback=feedback or "(none)",
-            bullets="\n".join(f"{i}. {b}" for i, b in enumerate(bullets)),
-        )
-        try:
-            raw = self._provider.generate(prompt)
-            rewrites = json.loads(_strip_code_fence(raw)).get("rewrites", [])
-        except Exception as exc:  # noqa: BLE001 — best-effort enrichment; a rate limit (LLMError
-            # 429), parse error, or any provider hiccup must degrade to the master wording, never
-            # break tailoring (spec: "rephrase LLM fails → keep originals, continue").
-            logger.warning("rephrase pass failed; keeping original bullets: %s", exc)
+    def _accept_rewrites(self, candidates: list[str], rewrites: object) -> dict[str, str]:
+        """Map each candidate bullet to its reword, keeping ONLY rewords that pass the fact guard
+        (best-effort: a missing/malformed ``rewrites`` field degrades to {} — reorder-only — and
+        never raises, so a tailoring run is never lost to a bad rewrite payload)."""
+        if not isinstance(rewrites, list):
             return {}
         out: dict[str, str] = {}
-        for original, reword in zip(bullets, rewrites, strict=False):
-            if isinstance(reword, str) and reword.strip() and reword != original \
-                    and self._guard_ok(original, reword):
+        for original, reword in zip(candidates, rewrites, strict=False):
+            if (
+                isinstance(reword, str)
+                and reword.strip()
+                and reword != original
+                and self._guard_ok(original, reword)
+            ):
                 out[original] = reword
         return out
 
