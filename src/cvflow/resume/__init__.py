@@ -211,11 +211,19 @@ class ResumeTailor:
         return "\n".join(lines)
 
     def tailored_document(self, plan: TailoringPlan) -> str:
-        """Return a full compilable .tex: real preamble + reordered body inputs."""
+        """Return a full compilable .tex: preamble + the name/contact heading + reordered
+        body inputs. The heading (between ``\\begin{document}`` and the first section input)
+        is always kept, whatever sections the plan selects."""
         master_tex = (self._master.root / "master.tex").read_text()
-        begin = master_tex.index("\\begin{document}")
+        marker = "\\begin{document}"
+        begin = master_tex.index(marker)
         preamble = master_tex[:begin]
+        after_begin = master_tex[begin + len(marker) :]
+        first_input = _INPUT_RE.search(after_begin)
+        heading = after_begin[: first_input.start()].strip("\n") if first_input else ""
         body_lines: list[str] = []
+        if heading:
+            body_lines.append(heading)
         for name in plan.section_order:
             if name == "projects":
                 body_lines.append("\\section{Projects}")
@@ -228,14 +236,20 @@ class ResumeTailor:
         body = "\n".join(body_lines)
         return f"{preamble}\\begin{{document}}\n{body}\n\\end{{document}}\n"
 
-    def compile_tailored(self, plan: TailoringPlan, outdir: str | Path) -> Path:
-        """Write the tailored document into the resume root and Tectonic-compile it."""
+    def compile_tailored(
+        self, plan: TailoringPlan, outdir: str | Path, *, stem: str = "_tailored"
+    ) -> Path:
+        """Write the tailored document into the resume root and Tectonic-compile it.
+
+        ``stem`` names the output (``<stem>.pdf``) so per-job resumes don't overwrite each
+        other; callers pass a job-derived stem.
+        """
         if shutil.which("tectonic") is None:
             raise CompileError("tectonic not found on PATH")
         self.assert_no_new_facts(self.render(plan))
         outdir = Path(outdir)
         outdir.mkdir(parents=True, exist_ok=True)
-        tailored_path = self._master.root / "_tailored.tex"
+        tailored_path = self._master.root / f"{stem}.tex"
         tailored_path.write_text(self.tailored_document(plan))
         try:
             result = subprocess.run(
@@ -245,7 +259,7 @@ class ResumeTailor:
             )
             if result.returncode != 0:
                 raise CompileError(result.stderr[-2000:])
-            return outdir / "_tailored.pdf"
+            return outdir / f"{stem}.pdf"
         finally:
             tailored_path.unlink(missing_ok=True)
 

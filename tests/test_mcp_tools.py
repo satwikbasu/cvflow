@@ -50,10 +50,10 @@ def test_list_and_get_applications_dispatch_to_store(tmp_path):
     assert listed["count"] == 2
     assert listed["offset"] == 0
     assert listed["next_offset"] is None
-    assert {a["job_id"] for a in listed["applications"]} == {"indeed:1", "indeed:2"}
-    assert listed["applications"][0]["company"] in {"Acme", "Globex"}
-    # minimal fields + the ordinal "n" the user sees and references
-    assert set(listed["applications"][0]) == {"n", "job_id", "company", "role"}
+    assert {a["company"] for a in listed["applications"]} == {"Acme", "Globex"}
+    # user-facing fields only: number, role, company, link — NOT the internal job_id
+    assert set(listed["applications"][0]) == {"n", "role", "company", "link"}
+    assert listed["applications"][0]["link"] in {"https://x/1", "https://x/2"}
     assert [a["n"] for a in listed["applications"]] == [1, 2]
 
     one = tools.get_application("indeed:1")
@@ -81,11 +81,11 @@ def test_listing_remaps_ordinals_to_the_listed_jobs():
     )
     assert tools.get_application("1")["job_id"] == "indeed:2"  # pre-list: the digest
 
-    listed = tools.list_applications(status="discovered")
-    first = listed["applications"][0]
-    # the ordinal now resolves to the listed row at that number, not the old digest slot
-    assert tools.get_application(str(first["n"]))["job_id"] == first["job_id"]
+    tools.list_applications(status="discovered")
+    # the ordinal now resolves to the listing order (indeed:1 first by discovered_at),
+    # not the old digest slot
     assert tools.get_application("1")["job_id"] == "indeed:1"
+    assert tools.get_application("2")["job_id"] == "indeed:2"
 
 
 def test_list_applications_paginates_default_10(tmp_path):
@@ -104,7 +104,7 @@ def test_list_applications_paginates_default_10(tmp_path):
     assert page1["offset"] == 0
     assert page1["next_offset"] == 10
     assert len(page1["applications"]) == 10
-    assert set(page1["applications"][0]) == {"n", "job_id", "company", "role"}
+    assert set(page1["applications"][0]) == {"n", "role", "company", "link"}
     assert page1["applications"][0]["n"] == 1
 
     page2 = tools.list_applications(status="discovered", offset=page1["next_offset"])
@@ -184,10 +184,10 @@ def test_request_review_moves_to_pending_review(tmp_path):
         def diff(self, plan):
             return "diff"
 
-        def compile_tailored(self, plan, outdir):
+        def compile_tailored(self, plan, outdir, *, stem="_tailored"):
             from pathlib import Path
 
-            p = Path(outdir) / "_tailored.pdf"
+            p = Path(outdir) / f"{stem}.pdf"
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_bytes(b"%PDF-1.5")
             return p
@@ -235,10 +235,10 @@ def _crux_tools(tmp_path, *, failing=False):
         def diff(self, plan):
             return "diff"
 
-        def compile_tailored(self, plan, outdir):
+        def compile_tailored(self, plan, outdir, *, stem="_tailored"):
             from pathlib import Path
 
-            p = Path(outdir) / "_tailored.pdf"
+            p = Path(outdir) / f"{stem}.pdf"
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_bytes(b"%PDF-1.5")
             return p
@@ -254,7 +254,10 @@ def test_request_review_tailors_via_crux_without_analysis(tmp_path):
     tools, store = _crux_tools(tmp_path)
     out = tools.request_review("indeed:9")
     assert out["status"] == "pending_review"
-    assert out["pdf_path"].endswith(".pdf")
+    # per-job filename so resumes don't overwrite each other
+    assert out["pdf_path"].endswith("tailored-indeed-9.pdf")
+    # role + company are returned so the /tailor reply can show them instead of the job_id
+    assert out["company"] == "Acme" and out["role"] == "Backend Engineer"
     assert store.get("indeed:9").status.value == "pending_review"
     # The seeded crux (must_have_skills + tech_stack) drove the analysis payload.
     assert out["analysis_summary"]["required_skills"] == ["python", "aws"]

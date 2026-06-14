@@ -41,6 +41,20 @@ def test_tailored_document_reorders_and_selects_projects() -> None:
         assert f"\\input{{sections/{first_section}.tex}}" in doc
 
 
+def test_tailored_document_always_keeps_the_heading() -> None:
+    master = parse_master(ROOT)
+    tailor = ResumeTailor(_Stub(), master)
+    # Even a plan that keeps only ONE section must retain the name/contact heading —
+    # the header lives between \begin{document} and the first section input.
+    plan = TailoringPlan(
+        section_order=["skills"], selected_project_ids=[], diff_narration=""
+    )
+    doc = tailor.tailored_document(plan)
+    assert "Satwik Basu" in doc  # the header survived the tailoring
+    # and it comes before the (only) section
+    assert doc.index("Satwik Basu") < doc.index("\\input{sections/skills.tex}")
+
+
 def test_plan_threads_feedback_into_prompt() -> None:
     master = parse_master(ROOT)
     captured: dict[str, str] = {}
@@ -75,3 +89,16 @@ def test_compile_tailored_produces_pdf(tmp_path: pytest.TempPathFactory) -> None
     )
     pdf = tailor.compile_tailored(plan, tmp_path)
     assert pdf.exists() and pdf.suffix == ".pdf"
+
+
+@pytest.mark.skipif(shutil.which("tectonic") is None, reason="tectonic not installed")
+def test_compile_tailored_names_pdf_by_stem(tmp_path: pytest.TempPathFactory) -> None:
+    master = parse_master(ROOT)
+    tailor = ResumeTailor(_Stub(), master)
+    plan = TailoringPlan(
+        section_order=list(master.section_order),
+        selected_project_ids=[master.projects[0].project_id],
+        diff_narration="",
+    )
+    pdf = tailor.compile_tailored(plan, tmp_path, stem="tailored-indeed-in-abc123")
+    assert pdf.name == "tailored-indeed-in-abc123.pdf" and pdf.exists()

@@ -14,6 +14,7 @@ satisfy the approval gate — by construction.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from cvflow.statemachine import Status
@@ -79,11 +80,11 @@ class CvflowTools:
         ``status`` must be one of: discovered, pending_review, approved, applied,
         otp_timeout, skipped, failed (the digest's new jobs are ``discovered``).
 
-        Returns a compact, paginated view — each row carries its number ``n`` plus
-        job_id/company/role (minimal, so a 60+ job list doesn't blow the reply budget). Show
-        ``n`` as the job's number; the user can then say "details for n" / "/tailor n" /
-        "/apply n" and it refers to the same job. Default 10 per page; ``total`` +
-        ``next_offset`` let you page ("show the next 10" → call again with offset=next_offset).
+        Render each job on ONE line as ``N. <role> @ <company> — <link>`` (don't show the
+        internal job_id; the user references jobs by their number ``N``). After listing, the
+        user can say "details for N" / "/tailor N" and it refers to the same job. Default 10
+        per page; ``total`` + ``next_offset`` let you page ("show the next 10" → call again
+        with offset=next_offset).
         """
         apps = self._store.list_by_status(Status(status))
         total = len(apps)
@@ -100,7 +101,7 @@ class CvflowTools:
             "count": len(window),
             "next_offset": end if end < total else None,
             "applications": [
-                {"n": offset + i, "job_id": a.job_id, "company": a.company, "role": a.role}
+                {"n": offset + i, "role": a.role, "company": a.company, "link": a.jd_url}
                 for i, a in enumerate(window, start=1)
             ],
         }
@@ -182,19 +183,20 @@ class CvflowTools:
             use_jd_analysis=self._use_jd_analysis, notify=self._notify,
         )
         plan = self._tailor.plan(analysis, feedback=feedback)
-        pdf = self._tailor.compile_tailored(plan, self._output_dir)
+        # Per-job filename so tailored resumes don't overwrite each other on disk.
+        stem = "tailored-" + re.sub(r"[^A-Za-z0-9._-]", "-", job_id)
+        pdf = self._tailor.compile_tailored(plan, self._output_dir, stem=stem)
         if app.status is Status.DISCOVERED:
             self._store.set_status(job_id, Status.PENDING_REVIEW)
         self._store.set_tailored_pdf(job_id, str(pdf))
         return {
             "job_id": job_id,
+            "company": app.company,
+            "role": app.role,
             "status": Status.PENDING_REVIEW.value,
             "pdf_path": str(pdf),
             "diff": self._tailor.diff(plan),
             "analysis_summary": json.loads(analysis.to_json()),
-            "instructions": (
-                f"Reply /apply {job_id} to approve & apply, or /skip {job_id} to skip."
-            ),
         }
 
     def compose_essay(self, question: str) -> dict[str, Any]:

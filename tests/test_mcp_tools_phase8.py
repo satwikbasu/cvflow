@@ -10,10 +10,10 @@ class _FakeTailor:
     def diff(self, plan):
         return "Section order: a → b"
 
-    def compile_tailored(self, plan, outdir):
+    def compile_tailored(self, plan, outdir, *, stem="_tailored"):
         from pathlib import Path
 
-        p = Path(outdir) / "_tailored.pdf"
+        p = Path(outdir) / f"{stem}.pdf"
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(b"%PDF-1.5")
         return p
@@ -59,10 +59,10 @@ def test_request_review_returns_pdf_diff_analysis(tmp_path):
     store, t = _tools(tmp_path, status=Status.DISCOVERED)
     out = t.request_review("j1")
     assert out["status"] == Status.PENDING_REVIEW.value
-    assert out["pdf_path"].endswith("_tailored.pdf")
+    assert out["pdf_path"].endswith("tailored-j1.pdf")  # per-job filename
+    assert out["company"] == "Acme" and out["role"] == "Engineer"
     assert "Section order" in out["diff"]
     assert out["analysis_summary"]["required_skills"] == ["python"]
-    assert "/apply j1" in out["instructions"]
     assert store.get("j1").tailored_pdf_path == out["pdf_path"]
 
 

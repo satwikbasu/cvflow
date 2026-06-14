@@ -340,14 +340,17 @@ def test_run_tailor_posts_pdf_and_diff(tmp_path):
 
     class _Tools:
         def request_review(self, job_id):
-            return {"job_id": job_id, "status": "pending_review",
-                    "pdf_path": "/x/r.pdf", "diff": "Section order: experience -> projects",
-                    "instructions": f"Reply /apply {job_id} to approve & apply, "
-                                    f"or /skip {job_id} to skip."}
+            return {"job_id": job_id, "company": "Acme", "role": "Backend Engineer",
+                    "status": "pending_review", "pdf_path": "/x/r.pdf",
+                    "diff": "Section order: experience -> projects"}
     notices = []
     run_tailor("x:1", tools=_Tools(), notify=notices.append, lock=nullcontext())
-    assert any("/x/r.pdf" in m for m in notices)
-    assert any("/apply x:1" in m for m in notices)
+    msg = "\n".join(notices)
+    assert "/x/r.pdf" in msg
+    # shows role @ company, not the raw job_id, and no longer nags /apply or /skip
+    assert "Backend Engineer @ Acme" in msg
+    assert "/apply" not in msg and "/skip" not in msg
+    assert "x:1" not in msg
 
 
 def test_run_tailor_notifies_on_failure(tmp_path):

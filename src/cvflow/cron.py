@@ -256,8 +256,8 @@ def run_tailor(job_id: str, *, tools: Any, notify: Any, lock: Any = None) -> Non
             try:
                 result = tools.request_review(job_id)
                 notify(
-                    f"✅ Tailored — {job_id}\n{result['pdf_path']}\n\n{result['diff']}\n\n"
-                    f"{result['instructions']}"
+                    f"✅ Tailored — {result['role']} @ {result['company']}\n"
+                    f"{result['pdf_path']}\n\n{result['diff']}"
                 )
             except Exception as exc:  # noqa: BLE001 — never silent (CLAUDE.md invariant 3)
                 notify(f"⚠️ Tailoring failed for {job_id}: {exc}")
