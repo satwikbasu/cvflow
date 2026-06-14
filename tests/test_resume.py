@@ -199,6 +199,40 @@ def test_assert_no_new_facts_passes_for_subset_and_fails_for_addition() -> None:
         tailor.assert_no_new_facts("EXP\n\\resumeItem{Fabricated 10 years at Google}")
 
 
+def test_guard_accepts_in_vocab_reword() -> None:
+    m = _master()
+    t = ResumeTailor(_FakeProvider("{}"), m, fact_corpus="kubernetes containers postgres")
+    # original mentions "container"; reword uses in-vocab words only, no new numbers
+    assert t._guard_ok("Built container tooling", "Built Kubernetes containers") is True
+
+
+def test_guard_rejects_new_number() -> None:
+    t = ResumeTailor(_FakeProvider("{}"), _master(), fact_corpus="")
+    assert t._guard_ok("Built APIs for tooling", "Built APIs handling 1000000 requests") is False
+
+
+def test_guard_rejects_out_of_vocab_word() -> None:
+    t = ResumeTailor(_FakeProvider("{}"), _master(), fact_corpus="python flask")
+    # "kubernetes" is in neither the original, the master content, nor the fact_corpus
+    assert t._guard_ok("Built python flask APIs", "Built kubernetes python flask APIs") is False
+
+
+def test_guard_stopwords_and_plurals_do_not_trip() -> None:
+    t = ResumeTailor(_FakeProvider("{}"), _master(), fact_corpus="container pipeline")
+    # plural "containers"/"pipelines" normalize to the singular in vocab; stopwords ignored
+    assert t._guard_ok("the container", "managed the containers and pipelines") is True
+
+
+def test_assert_no_new_facts_vocab_based() -> None:
+    # _master() section/project content: EXP, P, SK, IPSEC, CRUD
+    t = ResumeTailor(_FakeProvider("{}"), _master(), fact_corpus="")
+    t.assert_no_new_facts("EXP SK")  # all words in vocab -> ok
+    with pytest.raises(TailoringError):
+        t.assert_no_new_facts("EXP kubernetes")  # out-of-vocab word
+    with pytest.raises(TailoringError):
+        t.assert_no_new_facts("EXP 4242")  # number not in master
+
+
 # --- diff + compile ---
 
 

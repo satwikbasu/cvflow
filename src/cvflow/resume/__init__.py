@@ -43,6 +43,50 @@ MIN_PROJECTS = 2  # default project floor (overridden by config.resume.min_proje
 _INPUT_RE = re.compile(r"\\input\{sections/([^}]+?)\.tex\}")
 _PROJECT_INPUT_RE = re.compile(r"\\input\{sections/projects/([^}]+?)\.tex\}")
 
+_WORD_RE = re.compile(r"[A-Za-z]+")
+_NUM_RE = re.compile(r"\d[\d,]*")
+_LATEX_CMD_RE = re.compile(r"\\[A-Za-z]+")
+
+
+def _norm(word: str) -> str:
+    """Lowercase + strip a common plural/tense suffix so 'containers' matches 'container'."""
+    w = word.lower()
+    for suf in ("ing", "ed", "s", "es", "d"):
+        if w.endswith(suf) and len(w) - len(suf) >= 3:
+            return w[: -len(suf)]
+    return w
+
+
+# Function words + generic résumé verbs/adjectives. These never trip the fact guard — only
+# content words (nouns, tools, skills, numbers) must trace to the candidate's own data. NOTE:
+# normalized with the SAME _norm as tokens, so e.g. "managed"->"manag" matches at compare time.
+STOPWORDS: frozenset[str] = frozenset(
+    _norm(w)
+    for w in """
+    a an the and or but for to of in on at by with from into as is are was were be been being
+    this that these those it its their our your his her my we you they i he she them us
+    using used use via per across over under between within without about above below
+    built build building designed design develop developed developing led lead leading
+    created create creating made make making implemented implement implementing
+    integrated integrate integrating improved improve improving managed manage managing
+    enabled enable enabling added add adding set setting up out leveraged leverage leveraging
+    deployed deploy deploying maintained maintain scaling scaled scalable robust custom
+    real time end full multi high low new own based around alongside top layer layers
+    work working hands on while which who whose where when then so than more most less
+    """.split()
+)
+
+
+def _tokens(text: str) -> set[str]:
+    """Normalized content-word tokens from prose or LaTeX (commands/markup stripped)."""
+    stripped = _LATEX_CMD_RE.sub(" ", text)
+    return {_norm(w) for w in _WORD_RE.findall(stripped)}
+
+
+def _numbers(text: str) -> set[str]:
+    """Digit-runs (commas removed), e.g. '500K'->'500', '10,000'->'10000'."""
+    return {m.replace(",", "") for m in _NUM_RE.findall(text)}
+
 
 class TailoringError(Exception):
     """Raised when a tailoring plan is invalid or would add facts."""
@@ -136,11 +180,25 @@ class ResumeTailor:
     """Plans, renders, fact-checks, diffs and compiles a JD-tailored resume."""
 
     def __init__(
-        self, provider: _Provider, master: Master, *, min_projects: int = MIN_PROJECTS
+        self,
+        provider: _Provider,
+        master: Master,
+        *,
+        min_projects: int = MIN_PROJECTS,
+        fact_corpus: str = "",
+        rephrase: bool = True,
     ) -> None:
         self._provider = provider
         self._master = master
         self._min_projects = min_projects
+        self._rephrase = rephrase
+        corpus = "\n".join(
+            [s.content for s in master.sections.values()]
+            + [p.content for p in master.projects]
+            + [fact_corpus]
+        )
+        self._allowed_vocab = _tokens(corpus)
+        self._master_numbers = _numbers(corpus)
 
     def plan(self, jd: JDAnalysis, *, feedback: str | None = None) -> TailoringPlan:
         prompt = _PLAN_PROMPT.format(
@@ -209,21 +267,28 @@ class ResumeTailor:
                 parts.append(self._master.sections[name].content)
         return "\n".join(parts)
 
-    @staticmethod
-    def _content_lines(text: str) -> set[str]:
-        return {ln.strip() for ln in text.splitlines() if ln.strip()}
+    def _guard_ok(self, original: str, reword: str) -> bool:
+        """True if ``reword`` adds no fact: no number absent from ``original``, and every
+        non-stopword word is in the allowed vocabulary (master + profile + known skills) OR in
+        the original bullet itself (keeping an original word is always fine)."""
+        if not _numbers(reword) <= _numbers(original):
+            return False
+        allowed = self._allowed_vocab | _tokens(original)
+        content = {t for t in _tokens(reword) if t not in STOPWORDS}
+        return content <= allowed
 
     def assert_no_new_facts(self, tailored_tex: str) -> None:
-        """Raise if the tailored tex has any content line absent from the master."""
-        master_lines: set[str] = set()
-        for s in self._master.sections.values():
-            master_lines |= self._content_lines(s.content)
-        for p in self._master.projects:
-            master_lines |= self._content_lines(p.content)
-        extra = self._content_lines(tailored_tex) - master_lines
-        if extra:
+        """Raise if the rendered tex introduces a number not in the master or a content word
+        outside the allowed vocabulary (master + profile + known skills). This is the
+        deterministic expression of CLAUDE.md invariant 2 for the (possibly reworded) resume."""
+        extra_numbers = _numbers(tailored_tex) - self._master_numbers
+        bad_words = {
+            t for t in _tokens(tailored_tex) if t not in STOPWORDS
+        } - self._allowed_vocab
+        if extra_numbers or bad_words:
             raise TailoringError(
-                f"tailored resume adds content not in master: {sorted(extra)[:3]}"
+                f"tailored resume adds facts not in master: "
+                f"numbers={sorted(extra_numbers)[:3]} words={sorted(bad_words)[:3]}"
             )
 
     def diff(self, plan: TailoringPlan) -> str:
