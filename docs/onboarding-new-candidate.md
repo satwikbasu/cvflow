@@ -36,6 +36,7 @@ generic machinery.
 | `profile/candidate_skills.yaml` | **the skill set + synonyms the hard "must-have" gate matches against** | ✅ (must stay in sync with `skills.md`) |
 | `config.yaml` → `discovery:` + `preferences:` blocks | search terms, role weights, salary floor, YOE, deal-breakers | ✅ (non-secret blocks only) |
 | `resume/master.tex` heading + `resume/sections/*.tex` | your master LaTeX résumé content | ✅ (content only; keep the template/macros) |
+| `resume/sections/projects/<slug>.tex` + `\input` lines in `resume/sections/projects.tex` | one LaTeX block per project, wired into the projects section | ✅ (one block + one `\input` per project; count must match `profile/projects/`) |
 
 **Not candidate files — do not regenerate:** `profile/README.md`, `resume/README.md`
 (generic docs), anything under `src/`, and the **secret** parts of `config.yaml`
@@ -233,11 +234,24 @@ files, add a "REVIEW THESE" section listing every value you had to estimate or a
     heading over mine. Use my real contact details.
 
 13) For each résumé section, === FILE: resume/sections/<name>.tex ===
-    Produce: experience.tex, education.tex, projects.tex, skills.tex, certifications.tex
-    (and resume/sections/projects/<slug>.tex per project if you split them). Use the
-    project's existing LaTeX macros (\resumeSubheading, \resumeItem, \resumeProjectHeading,
-    \resumeItemListStart/End, \resumeSubHeadingListStart/End, \section{}). Content must be
-    factual and match experience.md/skills.md/projects.md. Do NOT invent bullets.
+    Produce: experience.tex, education.tex, projects.tex, skills.tex, certifications.tex.
+    Use the project's existing LaTeX macros (\resumeSubheading, \resumeItem,
+    \resumeProjectHeading, \resumeItemListStart/End, \resumeSubHeadingListStart/End,
+    \section{}). Content must be factual and match experience.md/skills.md/projects.md. Do
+    NOT invent bullets.
+
+13a) PROJECTS ARE SPLIT — one block file per project, plus the wiring. cvflow only "sees" a
+    project if it has its OWN block file AND is \input from projects.tex. So produce:
+    - === FILE: resume/sections/projects/<slug>.tex === for EVERY project (one per
+      profile/projects/<slug>.md), each a single \resumeProjectHeading{...}{} +
+      \resumeItemListStart … \resumeItem{…} … \resumeItemListEnd. Same <slug> as the .md.
+    - === FILE: resume/sections/projects.tex === containing \section{Projects},
+      \resumeSubHeadingListStart, then ONE `\input{sections/projects/<slug>.tex}` line for
+      EACH project block above, then \resumeSubHeadingListEnd.
+    The number of project block files (and \input lines) MUST equal the number of projects
+    you keep in profile/projects/. A project that exists in profile/ but is not given a
+    block + an \input line will NOT appear on any tailored résumé and will NOT count toward
+    the `resume.min_projects` floor.
 
 ## Final reminder
 Every fact must trace to my résumé(s) or the values I gave above. Leave unknowns blank.
@@ -267,6 +281,15 @@ directly change what you see.
    untouched. (Tip: back it up first — `cp config.yaml ~/config.yaml.bak`.)
 3. **Replace the résumé content.** Paste the heading block into `resume/master.tex`
    (keep all the macros/preamble), and overwrite each `resume/sections/*.tex`.
+   **Wire up your projects (easy to miss):** put one block file per project in
+   `resume/sections/projects/<slug>.tex` and add a matching
+   `\input{sections/projects/<slug>.tex}` line inside `resume/sections/projects.tex`.
+   **Delete** the previous candidate's project blocks + their `\input` lines. The count of
+   project blocks here is the *only* thing that decides how many projects can appear: the
+   tailorer can never show (or count toward `resume.min_projects`) a project that isn't a
+   wired-in `.tex` block — even if it's described in `profile/projects/`. Rule of thumb:
+   `# of \input lines in projects.tex` == `# of files in profile/projects/` == the most
+   projects a tailored résumé can show.
 4. **Wipe the previous candidate's runtime data (recommended).** The SQLite store and any
    generated PDFs/auth state belong to the old profile and are gitignored runtime:
    `rm -f data/cvflow.db data/resumes/* ` and clear `data/auth_state/` if present. (Job
@@ -286,6 +309,10 @@ python -c "from cvflow.knowledge import KnowledgeBase; \
   print('docs:', kb.doc_keys()); print('missing form fields:', kb.missing_form_fields())"
 # Résumé compiles (needs tectonic/latexmk + TeX Live):
 cd resume && tectonic master.tex && cd ..
+# Every project is actually wired into the master (count should match profile/projects/):
+python -c "from cvflow.resume import parse_master; \
+  print('projects the master exposes:', [p.project_id for p in parse_master('resume').projects])"
+ls profile/projects/   # the two lists should line up
 ```
 
 Checklist:
@@ -306,6 +333,11 @@ Checklist:
 - **`candidate_skills.yaml` must track `skills.md`.** When you learn a new tool, add it to
   both. The drift test only catches structural rot (a synonym pointing nowhere), not a
   skill you forgot to list — a missing skill silently drops good jobs.
+- **Keep your project `.tex` blocks in sync with `profile/projects/`.** Adding a project to
+  `profile/` is not enough — the tailorer only sees projects that have a
+  `resume/sections/projects/<slug>.tex` block AND an `\input` line in `projects.tex`. If you
+  add (or remove) a project, update both. And `resume.min_projects` can't exceed the number
+  of wired-in blocks — set `min_projects: 3` with only 2 blocks and you'll still get 2.
 - **The system never fabricates facts about you.** Empty `form_fields.json` values and
   `<!-- to fill -->` essay slots are deliberate: cvflow asks you in chat rather than
   guessing. Fill them when you can; don't have the LLM invent them.
