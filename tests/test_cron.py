@@ -344,11 +344,19 @@ def test_run_tailor_posts_pdf_and_diff(tmp_path):
                     "status": "pending_review", "pdf_path": "/x/r.pdf",
                     "diff": "Section order: experience -> projects"}
     notices = []
-    run_tailor("x:1", tools=_Tools(), notify=notices.append, lock=nullcontext())
+    docs = []
+    run_tailor(
+        "x:1", tools=_Tools(), notify=notices.append,
+        send_document=lambda path, caption: docs.append((path, caption)),
+        lock=nullcontext(),
+    )
     msg = "\n".join(notices)
-    assert "/x/r.pdf" in msg
-    # shows role @ company, not the raw job_id, and no longer nags /apply or /skip
+    # the PDF goes straight to the chat as a document; its path is NOT dumped as text
+    assert docs == [("/x/r.pdf", "✅ Tailored — Backend Engineer @ Acme")]
+    assert "/x/r.pdf" not in msg
+    # text shows role @ company + diff, no raw job_id, no /apply or /skip nag
     assert "Backend Engineer @ Acme" in msg
+    assert "experience -> projects" in msg
     assert "/apply" not in msg and "/skip" not in msg
     assert "x:1" not in msg
 

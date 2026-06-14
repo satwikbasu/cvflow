@@ -61,3 +61,46 @@ class HermesNotifier:
             )
         except Exception as exc:  # noqa: BLE001 — notice must not crash the caller
             logger.warning("hermes send failed (%s); message was: %s", exc, message)
+
+
+class TelegramDocumentSender:
+    """Uploads a file to the Telegram chat via the Bot API ``sendDocument``.
+
+    ``hermes send`` is text-only, so résumé PDFs go straight through the Bot API using
+    cvflow's own bot token + chat id (no extra cost, no running gateway needed). Best-effort:
+    a delivery failure logs and returns — it must never crash the tailoring run (invariant 3).
+    """
+
+    def __init__(
+        self,
+        bot_token: str,
+        chat_id: int,
+        *,
+        poster: Callable[..., Any] | None = None,
+        timeout: int = 60,
+    ) -> None:
+        self._token = bot_token
+        self._chat_id = chat_id
+        self._poster = poster
+        self._timeout = timeout
+
+    def __call__(self, path: str, caption: str = "") -> None:
+        try:
+            poster = self._poster
+            if poster is None:
+                import requests
+
+                poster = requests.post
+            url = f"https://api.telegram.org/bot{self._token}/sendDocument"
+            with open(path, "rb") as fh:
+                resp = poster(
+                    url,
+                    data={"chat_id": self._chat_id, "caption": caption},
+                    files={"document": fh},
+                    timeout=self._timeout,
+                )
+            raise_for_status = getattr(resp, "raise_for_status", None)
+            if callable(raise_for_status):
+                raise_for_status()
+        except Exception as exc:  # noqa: BLE001 — best-effort; never crash the tailoring run
+            logger.warning("telegram sendDocument failed for %s: %s", path, exc)

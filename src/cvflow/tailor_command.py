@@ -57,7 +57,12 @@ def handle_tailor_command(
         return TailorResult(
             handled=True, message="⏳ A tailoring run is already in progress — try again shortly."
         )
-    spawn(targets[0])
+    target = targets[0]
+    spawn(target)
+    # Show role @ company in the ack (not the raw job_id); fall back to the id if unknown.
+    getter = getattr(store, "get", None)
+    app = getter(target) if callable(getter) else None
+    label = f"{app.role} @ {app.company}" if app is not None else target
     return TailorResult(
-        handled=True, message=f"✂️ Tailoring {targets[0]} — I'll post the PDF + diff here."
+        handled=True, message=f"✂️ Tailoring {label} — I'll post the résumé + diff here."
     )

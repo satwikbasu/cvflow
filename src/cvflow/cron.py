@@ -239,9 +239,14 @@ def run_job(
         raise ValueError(f"unknown cron job: {job}")
 
 
-def run_tailor(job_id: str, *, tools: Any, notify: Any, lock: Any = None) -> None:
-    """Tailor one job (detached entrypoint for /tailor). Posts PDF + diff; errors notify.
+def run_tailor(
+    job_id: str, *, tools: Any, notify: Any, send_document: Any = None, lock: Any = None
+) -> None:
+    """Tailor one job (detached entrypoint for /tailor). Posts the diff and sends the PDF to
+    the chat; errors notify.
 
+    Posts ``role @ company`` + the diff via ``notify``, then (if ``send_document`` is given)
+    uploads the compiled PDF straight to Telegram — the file itself, not a server path.
     A single-run lock (default real ``tailor_lock``) serializes tailoring so two ``/tailor``
     invocations don't fight over Tectonic + the LLM. A lock raised from inside the body is a
     real bug and never swallowed (the ``acquired`` flag distinguishes it from contention).
@@ -255,10 +260,10 @@ def run_tailor(job_id: str, *, tools: Any, notify: Any, lock: Any = None) -> Non
             acquired = True
             try:
                 result = tools.request_review(job_id)
-                notify(
-                    f"✅ Tailored — {result['role']} @ {result['company']}\n"
-                    f"{result['pdf_path']}\n\n{result['diff']}"
-                )
+                headline = f"✅ Tailored — {result['role']} @ {result['company']}"
+                notify(f"{headline}\n\n{result['diff']}")
+                if send_document is not None:
+                    send_document(result["pdf_path"], headline)
             except Exception as exc:  # noqa: BLE001 — never silent (CLAUDE.md invariant 3)
                 notify(f"⚠️ Tailoring failed for {job_id}: {exc}")
                 raise
@@ -360,10 +365,17 @@ def main(
         if len(args) < 2:
             raise SystemExit("usage: python -m cvflow.cron tailor <job_id>")
         from cvflow.mcp.tools import build_tools
-        from cvflow.notify import HermesNotifier
+        from cvflow.notify import HermesNotifier, TelegramDocumentSender
 
         cfg = load_config("config.yaml")
-        run_tailor(args[1], tools=build_tools(cfg), notify=HermesNotifier())
+        run_tailor(
+            args[1],
+            tools=build_tools(cfg),
+            notify=HermesNotifier(),
+            send_document=TelegramDocumentSender(
+                cfg.telegram.bot_token, cfg.telegram.authorized_user_id
+            ),
+        )
         return
     manual = job == "discover" and "--progress" in args[1:]
     summary_provider: Any = None

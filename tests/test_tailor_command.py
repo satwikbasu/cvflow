@@ -3,9 +3,16 @@
 from cvflow.tailor_command import handle_tailor_command
 
 
+class _Job:
+    def __init__(self, role, company):
+        self.role = role
+        self.company = company
+
+
 class _Store:
-    def __init__(self, slots):
+    def __init__(self, slots, jobs=None):
         self._slots = slots
+        self._jobs = jobs or {}
 
     def get_digest_slot(self, n):
         return self._slots.get(n)
@@ -13,9 +20,15 @@ class _Store:
     def digest_slots(self):
         return list(self._slots.values())
 
+    def get(self, job_id):
+        return self._jobs.get(job_id)
+
 
 def _store():
-    return _Store({1: "a:1", 2: "b:2", 4: "d:4"})
+    return _Store(
+        {1: "a:1", 2: "b:2", 4: "d:4"},
+        jobs={"d:4": _Job("DevOps Engineer", "Acme")},
+    )
 
 
 def test_single_ordinal_spawns():
@@ -25,6 +38,8 @@ def test_single_ordinal_spawns():
         spawn=spawned.append, is_locked=lambda: False,
     )
     assert res.handled and spawned == ["d:4"]
+    # ack shows role @ company, not the raw job_id
+    assert "DevOps Engineer @ Acme" in res.message and "d:4" not in res.message
 
 
 def test_multiple_ordinals_rejected():
