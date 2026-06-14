@@ -52,8 +52,9 @@ def test_list_and_get_applications_dispatch_to_store(tmp_path):
     assert listed["next_offset"] is None
     assert {a["job_id"] for a in listed["applications"]} == {"indeed:1", "indeed:2"}
     assert listed["applications"][0]["company"] in {"Acme", "Globex"}
-    # minimal fields only — status is the query, not repeated per row
-    assert set(listed["applications"][0]) == {"job_id", "company", "role"}
+    # minimal fields + the ordinal "n" the user sees and references
+    assert set(listed["applications"][0]) == {"n", "job_id", "company", "role"}
+    assert [a["n"] for a in listed["applications"]] == [1, 2]
 
     one = tools.get_application("indeed:1")
     assert one["role"] == "Backend Engineer"
@@ -63,6 +64,28 @@ def test_list_and_get_applications_dispatch_to_store(tmp_path):
     assert "proof_url" not in one
     assert "proof_screenshot_path" not in one
     assert "otp_deadline" not in one
+
+
+def test_listing_remaps_ordinals_to_the_listed_jobs():
+    # A /discover digest is in place (slot 1 -> indeed:2). Listing the discovered jobs must
+    # re-map the ordinals to the listing order (indeed:1 first, by discovered_at), so a later
+    # "details for 1" / "/tailor 1" refers to what the user just saw — not the stale digest.
+    from cvflow.storage import ApplicationStore
+
+    store = ApplicationStore(":memory:")
+    store.add("indeed:1", "Acme", "Backend Engineer", "https://x/1")
+    store.add("indeed:2", "Globex", "Platform Engineer", "https://x/2")
+    store.set_digest_slots(["indeed:2", "indeed:1"])  # digest: slot 1 -> indeed:2
+    tools = CvflowTools(
+        store=store, knowledge=None, discovery=None, analyzer=None, tailor=None
+    )
+    assert tools.get_application("1")["job_id"] == "indeed:2"  # pre-list: the digest
+
+    listed = tools.list_applications(status="discovered")
+    first = listed["applications"][0]
+    # the ordinal now resolves to the listed row at that number, not the old digest slot
+    assert tools.get_application(str(first["n"]))["job_id"] == first["job_id"]
+    assert tools.get_application("1")["job_id"] == "indeed:1"
 
 
 def test_list_applications_paginates_default_10(tmp_path):
@@ -81,7 +104,8 @@ def test_list_applications_paginates_default_10(tmp_path):
     assert page1["offset"] == 0
     assert page1["next_offset"] == 10
     assert len(page1["applications"]) == 10
-    assert set(page1["applications"][0]) == {"job_id", "company", "role"}
+    assert set(page1["applications"][0]) == {"n", "job_id", "company", "role"}
+    assert page1["applications"][0]["n"] == 1
 
     page2 = tools.list_applications(status="discovered", offset=page1["next_offset"])
     assert page2["offset"] == 10

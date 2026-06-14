@@ -79,12 +79,18 @@ class CvflowTools:
         ``status`` must be one of: discovered, pending_review, approved, applied,
         otp_timeout, skipped, failed (the digest's new jobs are ``discovered``).
 
-        Returns a compact, paginated view — minimal per-job fields (job_id/company/role) so a
-        60+ job list doesn't blow the reply budget. Default 10 per page; ``total`` +
+        Returns a compact, paginated view — each row carries its number ``n`` plus
+        job_id/company/role (minimal, so a 60+ job list doesn't blow the reply budget). Show
+        ``n`` as the job's number; the user can then say "details for n" / "/tailor n" /
+        "/apply n" and it refers to the same job. Default 10 per page; ``total`` +
         ``next_offset`` let you page ("show the next 10" → call again with offset=next_offset).
         """
         apps = self._store.list_by_status(Status(status))
         total = len(apps)
+        # Re-map the ordinal→job_id slots to THIS listing (numbered by discovered_at), so a
+        # later "details/tailor/apply n" refers to the numbers just shown. The last numbered
+        # list the user saw wins — overwriting any earlier /discover digest map.
+        self._store.set_digest_slots([a.job_id for a in apps])
         window = apps[offset : offset + limit]
         end = offset + len(window)
         return {
@@ -94,14 +100,15 @@ class CvflowTools:
             "count": len(window),
             "next_offset": end if end < total else None,
             "applications": [
-                {"job_id": a.job_id, "company": a.company, "role": a.role}
-                for a in window
+                {"n": offset + i, "job_id": a.job_id, "company": a.company, "role": a.role}
+                for i, a in enumerate(window, start=1)
             ],
         }
 
     def get_application(self, ref: str) -> dict[str, Any] | None:
-        """Get / show ONE job's details — by job_id (e.g. "naukri:080626501910") OR by its
-        digest ordinal (e.g. "4" -> "details for job 4"). USE THIS when asked for the details,
+        """Get / show ONE job's details — by job_id (e.g. "naukri:080626501910") OR by the
+        ordinal "n" from the most recent digest or listing (e.g. "4" -> "details for job 4").
+        USE THIS when asked for the details,
         info, link, status, or scores of a particular job (e.g. "details for job 4", "show me
         the Django backend job", "what's the link for that application?").
 
