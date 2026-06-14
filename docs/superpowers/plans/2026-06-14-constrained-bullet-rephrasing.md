@@ -34,7 +34,8 @@ review gate together enforce CLAUDE.md invariant 2 (no fabricated facts).
 | `src/cvflow/resume/__init__.py` | `TailoringPlan.rephrased` + rephrase pass in `plan` + prompt | 3 |
 | `src/cvflow/resume/__init__.py` | `render`/`tailored_document` substitution + `diff` before/after | 4 |
 | `src/cvflow/config.py`, `config.example.yaml`, `src/cvflow/mcp/tools.py` | `resume.rephrase` toggle + `build_tools` wiring (fact_corpus + flag) | 5 |
-| `tests/test_resume.py`, `tests/test_config.py` | tests for all of the above | 1–5 |
+| `src/cvflow/config.py`, `config.example.yaml`, `src/cvflow/resume/__init__.py`, `src/cvflow/mcp/tools.py` | `resume.sections` per-section enable/disable | 6 |
+| `tests/test_resume.py`, `tests/test_config.py` | tests for all of the above | 1–6 |
 
 ---
 
@@ -758,6 +759,217 @@ git commit -m "feat(config): resume.rephrase toggle (default true); wire fact_co
 
 ---
 
+### Task 6: Per-section enable/disable toggles (`resume.sections`)
+
+**Files:**
+- Modify: `src/cvflow/config.py`, `config.example.yaml`, `src/cvflow/resume/__init__.py`,
+  `src/cvflow/mcp/tools.py`
+- Test: `tests/test_config.py`, `tests/test_resume.py`
+
+Lets the user drop a whole section from every tailored résumé via config. Default: all sections
+shown. Setting a section to `false` removes it entirely (and, for `projects`, empties the project
+picks so nothing is selected/padded/rephrased). The LLM still may never drop an *enabled* section.
+
+- [ ] **Step 1: Write the failing config tests**
+
+Add to `tests/test_config.py`:
+
+```python
+def test_disabled_sections_empty_when_absent(tmp_path: Path) -> None:
+    cfg = load_config(_write(tmp_path, VALID_YAML))
+    assert cfg.resume.disabled_sections == frozenset()
+
+
+def test_disabled_sections_reads_false_entries(tmp_path: Path) -> None:
+    yaml_text = VALID_YAML.replace(
+        '  latex_compiler: "latexmk"\n',
+        '  latex_compiler: "latexmk"\n  sections:\n'
+        "    projects: false\n    skills: true\n    education: false\n",
+    )
+    cfg = load_config(_write(tmp_path, yaml_text))
+    assert cfg.resume.disabled_sections == frozenset({"projects", "education"})
+```
+
+- [ ] **Step 2: Write the failing resume/plan tests**
+
+Add to `tests/test_resume.py`:
+
+```python
+def test_plan_drops_disabled_section_and_empties_projects() -> None:
+    payload = json.dumps(
+        {"section_order": ["experience", "projects", "skills"],
+         "selected_project_ids": ["crudbot"], "diff_narration": "x"}
+    )
+    t = ResumeTailor(
+        _FakeProvider(payload), _master(),
+        disabled_sections=frozenset({"projects"}), rephrase=False,
+    )
+    plan = t.plan(_jd())
+    assert "projects" not in plan.section_order
+    assert set(plan.section_order) == {"experience", "skills"}
+    assert plan.selected_project_ids == []  # projects disabled -> no picks/padding
+
+
+def test_plan_disabled_removed_but_enabled_never_dropped() -> None:
+    # model lists only "skills"; experience disabled by config; the rest stay (never-drop)
+    payload = json.dumps(
+        {"section_order": ["skills"], "selected_project_ids": [], "diff_narration": "x"}
+    )
+    t = ResumeTailor(
+        _FakeProvider(payload), _master(),
+        disabled_sections=frozenset({"experience"}), rephrase=False,
+    )
+    plan = t.plan(_jd())
+    assert "experience" not in plan.section_order
+    assert set(plan.section_order) == {"projects", "skills"}
+```
+
+- [ ] **Step 3: Run the tests to verify they fail**
+
+Run: `.venv/bin/python -m pytest tests/test_config.py -k disabled_sections tests/test_resume.py -k "disabled" -v`
+Expected: FAIL (`ResumeConfig` has no `disabled_sections`; `ResumeTailor.__init__` rejects the kwarg).
+
+- [ ] **Step 4: Add the config field + loader**
+
+In `src/cvflow/config.py`, add to `ResumeConfig` (after `rephrase`):
+
+```python
+    disabled_sections: frozenset[str] = frozenset()
+```
+
+In the `resume=ResumeConfig(...)` construction, after the `rephrase=` line, add:
+
+```python
+            disabled_sections=frozenset(
+                name
+                for name, shown in (res.get("sections") or {}).items()
+                if shown is False
+            ),
+```
+
+(`res` is the resume sub-dict already in scope. An absent `sections:` → `{}` → empty set. A
+non-bool value other than literal `false` leaves the section enabled.)
+
+- [ ] **Step 5: Document the key in `config.example.yaml`**
+
+Under the `resume:` block (after the `rephrase` line), add:
+
+```yaml
+  # Drop whole sections from the tailored résumé (default: every section shows). Only the ones
+  # set to false are removed. Valid names: experience, education, projects, skills, certifications.
+  sections:
+    experience: true
+    education: true
+    projects: true
+    skills: true
+    certifications: true
+```
+
+- [ ] **Step 6: Add the `disabled_sections` ctor param**
+
+In `src/cvflow/resume/__init__.py`, add the param to `ResumeTailor.__init__` (after `rephrase`)
+and store it:
+
+```python
+        rephrase: bool = True,
+        disabled_sections: frozenset[str] = frozenset(),
+    ) -> None:
+        ...
+        self._rephrase = rephrase
+        self._disabled_sections = disabled_sections
+```
+
+(Keep every other line of `__init__` — `min_projects`, `fact_corpus`, the vocab build — intact.)
+
+- [ ] **Step 7: Filter disabled sections in `plan`**
+
+In `plan`, immediately AFTER the never-drop line that appends omitted sections
+(`order += [s for s in master_order if s not in seen_sections]`), add:
+
+```python
+        # User config can drop whole sections entirely (distinct from the LLM, which may never
+        # drop an enabled one).
+        order = [s for s in order if s not in self._disabled_sections]
+```
+
+Then wrap the existing project-picks block so it's skipped when projects are disabled. Replace the
+picks logic (from `valid_pids = [...]` through the padding `for` loop) with:
+
+```python
+        if "projects" in self._disabled_sections:
+            picks: list[str] = []
+        else:
+            valid_pids = [p.project_id for p in self._master.projects]
+            pid_set = set(valid_pids)
+            picks = []
+            seen_pids: set[str] = set()
+            for p in d.get("selected_project_ids", []):
+                if p in pid_set and p not in seen_pids:
+                    picks.append(p)
+                    seen_pids.add(p)
+            floor = min(self._min_projects, len(valid_pids))
+            for pid in valid_pids:
+                if len(picks) >= floor:
+                    break
+                if pid not in seen_pids:
+                    picks.append(pid)
+                    seen_pids.add(pid)
+```
+
+- [ ] **Step 8: Make `_eligible_bullets` respect a disabled experience section**
+
+In `_eligible_bullets` (added in Task 3), guard the experience branch so a disabled experience
+section is not rephrased. Replace its experience lookup:
+
+```python
+    def _eligible_bullets(self, selected_pids: list[str]) -> list[str]:
+        """Experience bullets (unless disabled) + the selected projects' bullets, in order."""
+        bodies: list[str] = []
+        if "experience" not in self._disabled_sections:
+            text = self._master.sections.get("experience")
+            if text is not None:
+                bodies += [b for _, _, b in _resume_item_bodies(text.content)]
+        by_id = {p.project_id: p for p in self._master.projects}
+        for pid in selected_pids:
+            proj = by_id.get(pid)
+            if proj is not None:
+                bodies += [b for _, _, b in _resume_item_bodies(proj.content)]
+        return bodies
+```
+
+(Project bullets are already gated: `selected_pids` is empty when projects are disabled.)
+
+- [ ] **Step 9: Wire `build_tools`**
+
+In `src/cvflow/mcp/tools.py`, add to the `ResumeTailor(...)` construction (after `rephrase=`):
+
+```python
+        rephrase=config.resume.rephrase,
+        disabled_sections=config.resume.disabled_sections,
+    )
+```
+
+- [ ] **Step 10: Run the tests to verify they pass**
+
+Run: `.venv/bin/python -m pytest tests/test_config.py tests/test_resume.py -v`
+Expected: PASS (new disabled tests + all existing).
+
+- [ ] **Step 11: Full suite + lint + types + smoke**
+
+Run: `.venv/bin/python -m pytest -q && .venv/bin/ruff check . && .venv/bin/python -m mypy src`
+Run: `.venv/bin/python -c "from cvflow.config import load_config; from cvflow.mcp.tools import build_tools; build_tools(load_config('config.yaml')); print('ok')"`
+Expected: all green; prints `ok`. (A live `/discover` lock may fail the cron discover tests —
+environmental, unrelated.)
+
+- [ ] **Step 12: Commit**
+
+```bash
+git add src/cvflow/config.py config.example.yaml src/cvflow/resume/__init__.py src/cvflow/mcp/tools.py tests/test_config.py tests/test_resume.py
+git commit -m "feat(resume): resume.sections per-section enable/disable toggles (default all on)"
+```
+
+---
+
 ## Self-review
 
 **Spec coverage:**
@@ -771,8 +983,9 @@ git commit -m "feat(config): resume.rephrase toggle (default true); wire fact_co
 - `resume.rephrase` toggle default true; reorder kept → Tasks 5 (toggle), 3 (`rephrase` flag gates the pass; ordering untouched). ✓
 - Graceful failure (no bullets / bad JSON / provider error) → Task 3 `_rephrase_bullets`. ✓
 - Gate invariant untouched → no statemachine/gate changes anywhere. ✓
+- Per-section enable/disable (`resume.sections`, default all on; drops section + empties projects) → Task 6. ✓
 
-**Type consistency:** `_tokens`/`_numbers`/`_norm` (Task 1) reused by `_guard_ok` + `assert_no_new_facts` (Task 1). `_resume_item_bodies`/`_substitute_bullets` (Task 2) reused by `_eligible_bullets`/`_rephrase_bullets` (Task 3) and `render`/`tailored_document` (Task 4). `ResumeTailor.__init__(provider, master, *, min_projects, fact_corpus, rephrase)` defined in Task 1, called identically in Task 5. `TailoringPlan(..., rephrased=...)` defined Task 3, consumed Task 4. `config.resume.rephrase` defined Task 5, consumed by `build_tools` (Task 5) → `ResumeTailor(rephrase=...)`.
+**Type consistency:** `_tokens`/`_numbers`/`_norm` (Task 1) reused by `_guard_ok` + `assert_no_new_facts` (Task 1). `_resume_item_bodies`/`_substitute_bullets` (Task 2) reused by `_eligible_bullets`/`_rephrase_bullets` (Task 3) and `render`/`tailored_document` (Task 4). `ResumeTailor.__init__(provider, master, *, min_projects, fact_corpus, rephrase, disabled_sections)` — `min_projects` (existing), `fact_corpus`/`rephrase` added Task 1, `disabled_sections` added Task 6; called with `fact_corpus`/`rephrase` in Task 5 and additionally `disabled_sections` in Task 6. `TailoringPlan(..., rephrased=...)` defined Task 3, consumed Task 4. `config.resume.rephrase` defined Task 5, `config.resume.disabled_sections` defined Task 6, both consumed by `build_tools`. `_eligible_bullets(selected_pids)` defined Task 3, refined (disabled-experience guard) Task 6.
 
 **Placeholder scan:** none — every code step contains the full code; the only existing-test edit
 (Task 4) shows the full replacement body.

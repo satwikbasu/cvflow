@@ -125,6 +125,30 @@ consistent with `use_jd_analysis`). Documented in `config.example.yaml`. `false`
 reorder-only (today's behavior). Threaded: `config.resume.rephrase` → `build_tools` →
 `ResumeTailor(..., rephrase=…)`.
 
+### 6. Per-section enable/disable toggles
+
+`resume.sections:` — an optional YAML mapping of section name → bool letting the user drop a whole
+section from every tailored résumé. **Default: all sections shown** (an absent block, or an absent
+key, means that section appears). Setting a section to `false` removes it entirely.
+
+```yaml
+resume:
+  sections:
+    projects: false      # never include the Projects section
+    certifications: true # explicit true is the same as omitting it
+```
+
+Loaded into `ResumeConfig.disabled_sections: frozenset[str]` = the set of section names whose value
+is `false`. Threaded `config.resume.disabled_sections` → `build_tools` → `ResumeTailor(...,
+disabled_sections=…)`.
+
+Enforcement is in `plan()`, **after** the never-drop reorder: `order` is filtered to drop any
+disabled section, and if `"projects"` is disabled the project picks are emptied (so no projects are
+selected, padded, or rephrased). This is the one sanctioned way a section leaves the résumé — it is
+a deliberate user config, distinct from the LLM, which still may never drop an *enabled* section.
+Unknown names in the mapping are ignored harmlessly (they match no real section). `diff()`'s
+"Section order" line therefore lists only the enabled sections.
+
 ## Data flow
 
 `/tailor n` → `run_tailor` → `request_review` → `ResumeTailor.plan` (order call + rephrase call +
@@ -143,6 +167,9 @@ Telegram (PDF document + diff text). No new external calls beyond one extra Cere
 - **a number the candidate truly has but phrased differently** (e.g. master "500K", reword "500K")
   → digit-run `500` matches, accepted; reword "half a million" → no new digits, words must be in
   vocab (likely rejected → keep original). Safe either way.
+- **section disabled in config** (e.g. `projects: false`) → dropped from `order`; if it's
+  `projects`, picks are emptied so nothing is selected/padded/rephrased. Enabled sections are still
+  never dropped by the LLM.
 
 ## Testing (LLM mocked throughout)
 
@@ -160,20 +187,25 @@ Telegram (PDF document + diff text). No new external calls beyond one extra Cere
   injected out-of-vocab token / new number.
 - `diff()`: shows `- old` / `+ new` per changed bullet.
 - config: `resume.rephrase` defaults true when absent; reads false override.
+- config: `resume.sections` absent → `disabled_sections` empty; `{projects: false, skills: true}`
+  → `disabled_sections == {"projects"}`.
+- `plan`: a disabled section is dropped from `order`; `projects: false` → `selected_project_ids`
+  empty and no project bullets rephrased; an enabled section the model omitted is still present.
 
 ## Scope
 
-**In:** rephrasing of experience + selected-project `\resumeItem` bullets, the guard, the toggle,
-the diff, wiring. **Out (verbatim, untouched):** heading, job titles, company names, dates,
-education, certification names, the skills list; the gate/approval invariant; discovery; the
-`/tailor` command and Telegram delivery (already done).
+**In:** rephrasing of experience + selected-project `\resumeItem` bullets, the guard, the
+`rephrase` toggle, per-section enable/disable toggles, the diff, wiring. **Out (verbatim,
+untouched):** heading, job titles, company names, dates, education, certification names, the skills
+list; the gate/approval invariant; discovery; the `/tailor` command and Telegram delivery
+(already done).
 
 ## Files
 
 | File | Change |
 |---|---|
-| `src/cvflow/resume/__init__.py` | `STOPWORDS`, tokenizer, `_guard_ok`, bullet extract/substitute, rephrase call in `plan`, `rephrased` on `TailoringPlan`, redefined `assert_no_new_facts`, `diff` before/after, `tailored_document` inline substitution, `rephrase` ctor param |
-| `src/cvflow/config.py`, `config.example.yaml` | `resume.rephrase` toggle (default true) |
-| `src/cvflow/mcp/tools.py` | `build_tools` passes `rephrase=config.resume.rephrase` |
-| `tests/test_resume.py` (+ maybe `tests/test_config.py`) | the tests above |
+| `src/cvflow/resume/__init__.py` | `STOPWORDS`, tokenizer, `_guard_ok`, bullet extract/substitute, rephrase call in `plan`, `rephrased` on `TailoringPlan`, redefined `assert_no_new_facts`, `diff` before/after, `tailored_document` inline substitution, `rephrase` + `disabled_sections` ctor params, section filtering in `plan` |
+| `src/cvflow/config.py`, `config.example.yaml` | `resume.rephrase` toggle (default true); `resume.sections` mapping → `disabled_sections` |
+| `src/cvflow/mcp/tools.py` | `build_tools` passes `rephrase=` and `disabled_sections=` |
+| `tests/test_resume.py`, `tests/test_config.py` | the tests above |
 ```
