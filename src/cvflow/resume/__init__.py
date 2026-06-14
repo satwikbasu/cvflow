@@ -352,7 +352,9 @@ class ResumeTailor:
         try:
             raw = self._provider.generate(prompt)
             rewrites = json.loads(_strip_code_fence(raw)).get("rewrites", [])
-        except (ValueError, json.JSONDecodeError, AttributeError, KeyError, TypeError) as exc:
+        except Exception as exc:  # noqa: BLE001 — best-effort enrichment; a rate limit (LLMError
+            # 429), parse error, or any provider hiccup must degrade to the master wording, never
+            # break tailoring (spec: "rephrase LLM fails → keep originals, continue").
             logger.warning("rephrase pass failed; keeping original bullets: %s", exc)
             return {}
         out: dict[str, str] = {}

@@ -272,6 +272,25 @@ def test_plan_rephrase_bad_json_falls_back_silently() -> None:
     assert plan.rephrased == {}
 
 
+def test_plan_rephrase_provider_error_degrades_to_reorder_only() -> None:
+    # A rate limit (e.g. Cerebras HTTP 429 -> LLMError) on the rephrase call must NOT fail
+    # tailoring — it degrades to the master wording (reorder-only), never raises.
+    class _OrderThenRaise:
+        def __init__(self) -> None:
+            self.prompts: list[str] = []
+
+        def generate(self, prompt: str) -> str:
+            self.prompts.append(prompt)
+            if len(self.prompts) == 1:
+                return _order_json()
+            raise RuntimeError("NIM POST ... -> HTTP 429: Too Many Requests")
+
+    t = ResumeTailor(_OrderThenRaise(), _exp_master(), rephrase=True)
+    plan = t.plan(_jd())  # must not raise despite the rephrase-call error
+    assert plan.rephrased == {}
+    assert plan.section_order  # ordering still happened
+
+
 def test_render_applies_accepted_rewrites() -> None:
     m = _exp_master()
     plan = TailoringPlan(
