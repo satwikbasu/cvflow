@@ -243,11 +243,13 @@ class ResumeTailor:
         min_projects: int = MIN_PROJECTS,
         fact_corpus: str = "",
         rephrase: bool = True,
+        disabled_sections: frozenset[str] = frozenset(),
     ) -> None:
         self._provider = provider
         self._master = master
         self._min_projects = min_projects
         self._rephrase = rephrase
+        self._disabled_sections = disabled_sections
         corpus = "\n".join(
             [s.content for s in master.sections.values()]
             + [p.content for p in master.projects]
@@ -284,25 +286,31 @@ class ResumeTailor:
                 order.append(s)
                 seen_sections.add(s)
         order += [s for s in master_order if s not in seen_sections]
+        # User config can drop whole sections entirely (distinct from the LLM, which may never
+        # drop an enabled one).
+        order = [s for s in order if s not in self._disabled_sections]
 
         # Projects: keep the model's relevant picks, then PAD up to the configured floor
         # (master order) so the resume always shows at least ``min_projects`` (or all, if
         # fewer exist). No upper cap — a strongly-relevant extra project is kept.
-        valid_pids = [p.project_id for p in self._master.projects]
-        pid_set = set(valid_pids)
-        picks: list[str] = []
-        seen_pids: set[str] = set()
-        for p in d.get("selected_project_ids", []):
-            if p in pid_set and p not in seen_pids:
-                picks.append(p)
-                seen_pids.add(p)
-        floor = min(self._min_projects, len(valid_pids))
-        for pid in valid_pids:
-            if len(picks) >= floor:
-                break
-            if pid not in seen_pids:
-                picks.append(pid)
-                seen_pids.add(pid)
+        if "projects" in self._disabled_sections:
+            picks: list[str] = []
+        else:
+            valid_pids = [p.project_id for p in self._master.projects]
+            pid_set = set(valid_pids)
+            picks = []
+            seen_pids: set[str] = set()
+            for p in d.get("selected_project_ids", []):
+                if p in pid_set and p not in seen_pids:
+                    picks.append(p)
+                    seen_pids.add(p)
+            floor = min(self._min_projects, len(valid_pids))
+            for pid in valid_pids:
+                if len(picks) >= floor:
+                    break
+                if pid not in seen_pids:
+                    picks.append(pid)
+                    seen_pids.add(pid)
 
         rephrased = self._rephrase_bullets(picks, jd, feedback) if self._rephrase else {}
 
@@ -314,11 +322,12 @@ class ResumeTailor:
         )
 
     def _eligible_bullets(self, selected_pids: list[str]) -> list[str]:
-        """Experience bullets + the selected projects' bullets, in order."""
+        """Experience bullets (unless disabled) + the selected projects' bullets, in order."""
         bodies: list[str] = []
-        text = self._master.sections.get("experience")
-        if text is not None:
-            bodies += [b for _, _, b in _resume_item_bodies(text.content)]
+        if "experience" not in self._disabled_sections:
+            text = self._master.sections.get("experience")
+            if text is not None:
+                bodies += [b for _, _, b in _resume_item_bodies(text.content)]
         by_id = {p.project_id: p for p in self._master.projects}
         for pid in selected_pids:
             proj = by_id.get(pid)

@@ -97,6 +97,7 @@ class ResumeConfig:
     use_jd_analysis: bool = False
     min_projects: int = 2
     rephrase: bool = True
+    disabled_sections: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -353,6 +354,11 @@ def load_config(path: str | Path) -> Config:
             use_jd_analysis=_opt_bool(res, "use_jd_analysis", "resume.", False),
             min_projects=_opt_int(res, "min_projects", "resume.", 2),
             rephrase=_opt_bool(res, "rephrase", "resume.", True),
+            disabled_sections=frozenset(
+                name
+                for name, shown in (res.get("sections") or {}).items()
+                if shown is False
+            ),
         ),
         automation=AutomationConfig(
             headless=_get_bool(auto, "headless", "automation."),

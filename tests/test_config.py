@@ -349,3 +349,18 @@ def test_rephrase_reads_false_override(tmp_path: Path) -> None:
     )
     cfg = load_config(_write(tmp_path, yaml_text))
     assert cfg.resume.rephrase is False
+
+
+def test_disabled_sections_empty_when_absent(tmp_path: Path) -> None:
+    cfg = load_config(_write(tmp_path, VALID_YAML))
+    assert cfg.resume.disabled_sections == frozenset()
+
+
+def test_disabled_sections_reads_false_entries(tmp_path: Path) -> None:
+    yaml_text = VALID_YAML.replace(
+        '  latex_compiler: "latexmk"\n',
+        '  latex_compiler: "latexmk"\n  sections:\n'
+        "    projects: false\n    skills: true\n    education: false\n",
+    )
+    cfg = load_config(_write(tmp_path, yaml_text))
+    assert cfg.resume.disabled_sections == frozenset({"projects", "education"})

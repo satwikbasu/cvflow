@@ -177,6 +177,34 @@ def test_plan_has_no_upper_cap_keeps_all_relevant_picks() -> None:
     assert plan.selected_project_ids == ["ipsec-dashboard", "crudbot", "third"]
 
 
+def test_plan_drops_disabled_section_and_empties_projects() -> None:
+    payload = json.dumps(
+        {"section_order": ["experience", "projects", "skills"],
+         "selected_project_ids": ["crudbot"], "diff_narration": "x"}
+    )
+    t = ResumeTailor(
+        _FakeProvider(payload), _master(),
+        disabled_sections=frozenset({"projects"}), rephrase=False,
+    )
+    plan = t.plan(_jd())
+    assert "projects" not in plan.section_order
+    assert set(plan.section_order) == {"experience", "skills"}
+    assert plan.selected_project_ids == []
+
+
+def test_plan_disabled_removed_but_enabled_never_dropped() -> None:
+    payload = json.dumps(
+        {"section_order": ["skills"], "selected_project_ids": [], "diff_narration": "x"}
+    )
+    t = ResumeTailor(
+        _FakeProvider(payload), _master(),
+        disabled_sections=frozenset({"experience"}), rephrase=False,
+    )
+    plan = t.plan(_jd())
+    assert "experience" not in plan.section_order
+    assert set(plan.section_order) == {"projects", "skills"}
+
+
 # --- rephrase pass ---
 
 

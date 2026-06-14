@@ -290,6 +290,7 @@ def build_tools(config: Any) -> CvflowTools:
         min_projects=config.resume.min_projects,
         fact_corpus=fact_corpus,
         rephrase=config.resume.rephrase,
+        disabled_sections=config.resume.disabled_sections,
     )
 
     from cvflow.analysis import JDAnalyzer
