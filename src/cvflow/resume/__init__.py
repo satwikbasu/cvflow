@@ -6,11 +6,12 @@ it never rewrites unit text. That makes "no new facts" (CLAUDE.md invariant 2) a
 deterministic, exact check: every content line in the tailored ``.tex`` must
 already exist in the master. The LLM (same ``generate(prompt)->str`` seam as
 discovery/analysis) only chooses ordering + selection; deterministic code
-validates the plan (dropping anything fabricated), caps projects at
-:data:`MAX_PROJECTS`, renders, asserts, and diffs. Compilation is via Tectonic.
+validates the plan (dropping anything fabricated), **never drops a section**
+(only reorders — omitted sections are appended in master order), keeps **at least**
+``min_projects`` projects (config ``resume.min_projects``; padded by master order if
+the model picks fewer), renders, asserts, and diffs. Compilation is via Tectonic.
 
-User requirement (2026-06-04): show at most 2 projects, chosen by JD relevance
-(e.g. a Java/Spring Boot role → CRUDbot).
+Projects are chosen by JD relevance (e.g. a Java/Spring Boot role → CRUDbot).
 """
 
 from __future__ import annotations
@@ -34,10 +35,10 @@ __all__ = [
     "ResumeTailor",
     "TailoringError",
     "CompileError",
-    "MAX_PROJECTS",
+    "MIN_PROJECTS",
 ]
 
-MAX_PROJECTS = 2
+MIN_PROJECTS = 2  # default project floor (overridden by config.resume.min_projects)
 
 _INPUT_RE = re.compile(r"\\input\{sections/([^}]+?)\.tex\}")
 _PROJECT_INPUT_RE = re.compile(r"\\input\{sections/projects/([^}]+?)\.tex\}")
@@ -120,9 +121,10 @@ class TailoringPlan:
 _PLAN_PROMPT = (
     "You tailor a resume by REORDERING sections and SELECTING which projects to show. "
     "You may NOT add, remove, or reword any factual content — only choose order and selection.\n"
-    "Return ONLY a JSON object: section_order (array of section names, a permutation/subset "
-    "of the given sections), selected_project_ids (array, AT MOST 2, most relevant first), "
-    "diff_narration (one short paragraph explaining the choices in plain language).\n\n"
+    "Return ONLY a JSON object: section_order (ALL the given section names in your chosen "
+    "order — reorder for emphasis, do NOT omit any), selected_project_ids (the most relevant "
+    "project ids, most relevant first), diff_narration (one short paragraph explaining the "
+    "choices in plain language).\n\n"
     "## Available sections (default order)\n{sections}\n\n"
     "## Available projects (id: content)\n{projects}\n\n"
     "## Target job\nrequired_skills: {req}\npreferred_quals: {pref}\nseniority: {sen}\n"
@@ -133,9 +135,12 @@ _PLAN_PROMPT = (
 class ResumeTailor:
     """Plans, renders, fact-checks, diffs and compiles a JD-tailored resume."""
 
-    def __init__(self, provider: _Provider, master: Master) -> None:
+    def __init__(
+        self, provider: _Provider, master: Master, *, min_projects: int = MIN_PROJECTS
+    ) -> None:
         self._provider = provider
         self._master = master
+        self._min_projects = min_projects
 
     def plan(self, jd: JDAnalysis, *, feedback: str | None = None) -> TailoringPlan:
         prompt = _PLAN_PROMPT.format(
@@ -154,15 +159,36 @@ class ResumeTailor:
         except (ValueError, json.JSONDecodeError) as exc:
             raise TailoringError(f"unparseable tailoring plan: {exc}") from exc
 
-        valid_sections = set(self._master.section_order)
-        order = [s for s in d.get("section_order", []) if s in valid_sections]
-        if not order:
-            order = list(self._master.section_order)  # never emit an empty resume
+        # Never DROP a section — only reorder. Keep the model's order for the sections it
+        # listed, then append any it omitted in master order (so nothing is ever lost).
+        master_order = list(self._master.section_order)
+        valid_sections = set(master_order)
+        order: list[str] = []
+        seen_sections: set[str] = set()
+        for s in d.get("section_order", []):
+            if s in valid_sections and s not in seen_sections:
+                order.append(s)
+                seen_sections.add(s)
+        order += [s for s in master_order if s not in seen_sections]
 
-        valid_pids = {p.project_id for p in self._master.projects}
-        picks = [p for p in d.get("selected_project_ids", []) if p in valid_pids][
-            :MAX_PROJECTS
-        ]
+        # Projects: keep the model's relevant picks, then PAD up to the configured floor
+        # (master order) so the resume always shows at least ``min_projects`` (or all, if
+        # fewer exist). No upper cap — a strongly-relevant extra project is kept.
+        valid_pids = [p.project_id for p in self._master.projects]
+        pid_set = set(valid_pids)
+        picks: list[str] = []
+        seen_pids: set[str] = set()
+        for p in d.get("selected_project_ids", []):
+            if p in pid_set and p not in seen_pids:
+                picks.append(p)
+                seen_pids.add(p)
+        floor = min(self._min_projects, len(valid_pids))
+        for pid in valid_pids:
+            if len(picks) >= floor:
+                break
+            if pid not in seen_pids:
+                picks.append(pid)
+                seen_pids.add(pid)
 
         return TailoringPlan(
             section_order=order,

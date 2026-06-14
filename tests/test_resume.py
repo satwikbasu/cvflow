@@ -102,19 +102,77 @@ def test_plan_validates_and_caps_projects_and_drops_unknown() -> None:
     assert "Java" in tailor._provider.prompts[0]  # type: ignore[attr-defined]
 
 
-def test_plan_caps_to_two_projects() -> None:
+def test_plan_default_floor_is_two_projects() -> None:
+    # Default min_projects (no override) is 2: a single model pick is padded to two.
     payload = json.dumps(
         {
             "section_order": ["experience", "projects", "skills"],
-            "selected_project_ids": ["ipsec-dashboard", "crudbot"],
+            "selected_project_ids": ["crudbot"],
             "diff_narration": "x",
         }
     )
     m = _master()
     m.projects.append(Project("third", "THIRD"))
-    tailor = ResumeTailor(_FakeProvider(payload), m)
+    tailor = ResumeTailor(_FakeProvider(payload), m)  # default floor = 2
     plan = tailor.plan(_jd())
-    assert len(plan.selected_project_ids) <= 2
+    assert len(plan.selected_project_ids) == 2
+    assert plan.selected_project_ids[0] == "crudbot"
+
+
+def test_plan_never_drops_sections_appends_omitted() -> None:
+    # Model lists only one section; the rest must still appear (reorder, never drop).
+    payload = json.dumps(
+        {"section_order": ["skills"], "selected_project_ids": ["crudbot"], "diff_narration": "x"}
+    )
+    tailor = ResumeTailor(_FakeProvider(payload), _master())
+    plan = tailor.plan(_jd())
+    assert plan.section_order[0] == "skills"  # the model's emphasis leads
+    assert set(plan.section_order) == {"experience", "projects", "skills"}  # nothing dropped
+
+
+def test_plan_pads_projects_to_configured_count() -> None:
+    # Model picks none; we pad to the configured count by master order.
+    payload = json.dumps(
+        {
+            "section_order": ["experience", "projects", "skills"],
+            "selected_project_ids": [],
+            "diff_narration": "x",
+        }
+    )
+    tailor = ResumeTailor(_FakeProvider(payload), _master(), min_projects=2)
+    plan = tailor.plan(_jd())
+    assert len(plan.selected_project_ids) == 2
+
+
+def test_plan_pads_to_min_projects_floor_keeping_the_models_pick_first() -> None:
+    # Model picks one; the floor pads up to min_projects, model's pick leading.
+    payload = json.dumps(
+        {
+            "section_order": ["experience", "projects", "skills"],
+            "selected_project_ids": ["crudbot"],
+            "diff_narration": "x",
+        }
+    )
+    tailor = ResumeTailor(_FakeProvider(payload), _master(), min_projects=2)
+    plan = tailor.plan(_jd())
+    assert len(plan.selected_project_ids) == 2
+    assert plan.selected_project_ids[0] == "crudbot"
+
+
+def test_plan_has_no_upper_cap_keeps_all_relevant_picks() -> None:
+    # min_projects is a floor, not a cap — extra strongly-relevant picks are kept.
+    payload = json.dumps(
+        {
+            "section_order": ["experience", "projects", "skills"],
+            "selected_project_ids": ["ipsec-dashboard", "crudbot", "third"],
+            "diff_narration": "x",
+        }
+    )
+    m = _master()
+    m.projects.append(Project("third", "THIRD"))
+    tailor = ResumeTailor(_FakeProvider(payload), m, min_projects=2)
+    plan = tailor.plan(_jd())
+    assert plan.selected_project_ids == ["ipsec-dashboard", "crudbot", "third"]
 
 
 # --- render + no-new-facts ---

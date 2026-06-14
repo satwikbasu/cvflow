@@ -96,6 +96,9 @@ resume:
   # false = tailor from the cached discovery crux (no extra LLM call, works on every ranked job);
   # true  = re-analyze the stored JD text per job for richer required/preferred fields.
   use_jd_analysis: false
+  # minimum number of projects the tailored résumé always shows (floor — padded by relevance
+  # if the model picks fewer; it may show more if strongly relevant). Sections are never dropped.
+  min_projects: 2
 
 automation:
   headless: false                 # run headed under xvfb on the server

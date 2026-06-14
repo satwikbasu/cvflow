@@ -279,7 +279,9 @@ def build_tools(config: Any) -> CvflowTools:
     distiller = _provider(config.llm.distillation)     # Mistral mistral-small
     # master_tex_path points at the master.tex FILE; parse_master wants its dir root.
     master_root = Path(config.resume.master_tex_path).parent
-    tailor = ResumeTailor(tailoring, parse_master(master_root))
+    tailor = ResumeTailor(
+        tailoring, parse_master(master_root), min_projects=config.resume.min_projects
+    )
 
     from cvflow.analysis import JDAnalyzer
     from cvflow.discovery import DiscoveryService
