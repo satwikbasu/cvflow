@@ -279,8 +279,17 @@ def build_tools(config: Any) -> CvflowTools:
     distiller = _provider(config.llm.distillation)     # Mistral mistral-small
     # master_tex_path points at the master.tex FILE; parse_master wants its dir root.
     master_root = Path(config.resume.master_tex_path).parent
+    # The fact guard's allowed vocabulary = the profile knowledge base + the curated skill list.
+    skills_path = Path(config.profile.knowledge_base_dir) / "candidate_skills.yaml"
+    fact_corpus = knowledge.full_context()
+    if skills_path.exists():
+        fact_corpus += "\n" + skills_path.read_text()
     tailor = ResumeTailor(
-        tailoring, parse_master(master_root), min_projects=config.resume.min_projects
+        tailoring,
+        parse_master(master_root),
+        min_projects=config.resume.min_projects,
+        fact_corpus=fact_corpus,
+        rephrase=config.resume.rephrase,
     )
 
     from cvflow.analysis import JDAnalyzer

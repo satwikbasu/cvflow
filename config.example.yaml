@@ -99,6 +99,10 @@ resume:
   # minimum number of projects the tailored résumé always shows (floor — padded by relevance
   # if the model picks fewer; it may show more if strongly relevant). Sections are never dropped.
   min_projects: 2
+  # true = the LLM rewords experience/project bullets to match the JD's language (a fact guard
+  # rejects any reword that adds a number/skill/claim not in your profile; rejected bullets keep
+  # the master wording). false = reorder/select only, no rewording.
+  rephrase: true
 
 automation:
   headless: false                 # run headed under xvfb on the server

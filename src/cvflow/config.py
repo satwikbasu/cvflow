@@ -96,6 +96,7 @@ class ResumeConfig:
     latex_compiler: str
     use_jd_analysis: bool = False
     min_projects: int = 2
+    rephrase: bool = True
 
 
 @dataclass(frozen=True)
@@ -351,6 +352,7 @@ def load_config(path: str | Path) -> Config:
             latex_compiler=_get_str(res, "latex_compiler", "resume."),
             use_jd_analysis=_opt_bool(res, "use_jd_analysis", "resume.", False),
             min_projects=_opt_int(res, "min_projects", "resume.", 2),
+            rephrase=_opt_bool(res, "rephrase", "resume.", True),
         ),
         automation=AutomationConfig(
             headless=_get_bool(auto, "headless", "automation."),

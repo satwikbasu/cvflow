@@ -335,3 +335,17 @@ def test_min_projects_reads_override(tmp_path: Path) -> None:
     )
     cfg = load_config(_write(tmp_path, yaml_text))
     assert cfg.resume.min_projects == 3
+
+
+def test_rephrase_defaults_true_when_absent(tmp_path: Path) -> None:
+    cfg = load_config(_write(tmp_path, VALID_YAML))
+    assert cfg.resume.rephrase is True
+
+
+def test_rephrase_reads_false_override(tmp_path: Path) -> None:
+    yaml_text = VALID_YAML.replace(
+        '  latex_compiler: "latexmk"\n',
+        '  latex_compiler: "latexmk"\n  rephrase: false\n',
+    )
+    cfg = load_config(_write(tmp_path, yaml_text))
+    assert cfg.resume.rephrase is False
