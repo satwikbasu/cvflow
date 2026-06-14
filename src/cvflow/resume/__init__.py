@@ -361,9 +361,10 @@ class ResumeTailor:
         parts: list[str] = []
         for name in plan.section_order:
             if name == "projects":
-                parts.append(self._render_projects(plan.selected_project_ids))
+                raw = self._render_projects(plan.selected_project_ids)
             else:
-                parts.append(self._master.sections[name].content)
+                raw = self._master.sections[name].content
+            parts.append(_substitute_bullets(raw, plan.rephrased))
         return "\n".join(parts)
 
     def _guard_ok(self, original: str, reword: str) -> bool:
@@ -391,10 +392,17 @@ class ResumeTailor:
             )
 
     def diff(self, plan: TailoringPlan) -> str:
-        lines = [
-            "Section order: " + " → ".join(plan.section_order),
-            "Projects shown: " + (", ".join(plan.selected_project_ids) or "(none)"),
-        ]
+        lines: list[str] = []
+        if plan.rephrased:
+            lines.append("Reworded bullets:")
+            for original, reword in plan.rephrased.items():
+                lines.append(f"  - {original}")
+                lines.append(f"  + {reword}")
+            lines.append("")
+        lines.append("Section order: " + " → ".join(plan.section_order))
+        lines.append(
+            "Projects shown: " + (", ".join(plan.selected_project_ids) or "(none)")
+        )
         if plan.diff_narration:
             lines.append("")
             lines.append(plan.diff_narration)
@@ -414,13 +422,22 @@ class ResumeTailor:
         body_lines: list[str] = []
         if heading:
             body_lines.append(heading)
+        by_id = {p.project_id: p for p in self._master.projects}
         for name in plan.section_order:
             if name == "projects":
+                # These wrapper lines carry NO \resumeItem and are not seen by render()/the
+                # fact-check — keep it that way (never put bullet content here, only structure).
                 body_lines.append("\\section{Projects}")
                 body_lines.append("    \\resumeSubHeadingListStart")
                 for pid in plan.selected_project_ids:
-                    body_lines.append(f"      \\input{{sections/projects/{pid}.tex}}")
+                    proj = by_id.get(pid)
+                    if proj is not None:
+                        body_lines.append(_substitute_bullets(proj.content, plan.rephrased))
                 body_lines.append("    \\resumeSubHeadingListEnd")
+            elif name == "experience":
+                body_lines.append(
+                    _substitute_bullets(self._master.sections["experience"].content, plan.rephrased)
+                )
             else:
                 body_lines.append(f"\\input{{sections/{name}.tex}}")
         body = "\n".join(body_lines)

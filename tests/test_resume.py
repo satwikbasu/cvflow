@@ -244,6 +244,32 @@ def test_plan_rephrase_bad_json_falls_back_silently() -> None:
     assert plan.rephrased == {}
 
 
+def test_render_applies_accepted_rewrites() -> None:
+    m = _exp_master()
+    plan = TailoringPlan(
+        section_order=["experience", "projects"],
+        selected_project_ids=["crudbot"],
+        diff_narration="",
+        rephrased={"Built python flask APIs for tooling": "Built python flask REST APIs"},
+    )
+    t = ResumeTailor(_FakeProvider("{}"), m)
+    out = t.render(plan)
+    assert "Built python flask REST APIs" in out
+    assert "Built python flask APIs for tooling" not in out
+
+
+def test_diff_shows_before_after_for_reworded_bullets() -> None:
+    m = _exp_master()
+    plan = TailoringPlan(
+        section_order=["experience"], selected_project_ids=[], diff_narration="why",
+        rephrased={"Built python flask APIs for tooling": "Built python flask REST APIs"},
+    )
+    out = ResumeTailor(_FakeProvider("{}"), m).diff(plan)
+    assert "- Built python flask APIs for tooling" in out
+    assert "+ Built python flask REST APIs" in out
+    assert "Section order:" in out and "why" in out
+
+
 # --- render + no-new-facts ---
 
 

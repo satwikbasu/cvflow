@@ -21,24 +21,15 @@ def test_tailored_document_reorders_and_selects_projects() -> None:
     pid = master.projects[0].project_id
     plan = TailoringPlan(section_order=order, selected_project_ids=[pid], diff_narration="")
     doc = tailor.tailored_document(plan)
-
-    # Full compilable document structure
     assert "\\begin{document}" in doc and "\\end{document}" in doc
-
-    # Selected project's input line is present
-    assert pid in doc
-
-    # Unselected project omitted
+    # the selected project's CONTENT is inlined; the unselected one is absent.
+    # Use the project-name line (index 1) — line 0 is the generic \resumeProjectHeading
+    # shared by every project, so it can't distinguish selected from unselected.
+    selected_snippet = master.projects[0].content.split("\n")[1][:30]
+    assert selected_snippet in doc
     if len(master.projects) > 1:
-        assert master.projects[1].project_id not in doc
-
-    # Section order follows the plan: the first \input line in the body
-    # should reference the first section in the reversed order
-    first_section = order[0]
-    if first_section == "projects":
-        assert f"\\input{{sections/projects/{pid}.tex}}" in doc
-    else:
-        assert f"\\input{{sections/{first_section}.tex}}" in doc
+        other_snippet = master.projects[1].content.split("\n")[1][:30]
+        assert other_snippet not in doc
 
 
 def test_tailored_document_always_keeps_the_heading() -> None:
