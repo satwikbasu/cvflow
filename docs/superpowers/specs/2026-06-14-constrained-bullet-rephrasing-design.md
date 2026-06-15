@@ -65,35 +65,31 @@ reordering/selection stay but are secondary. The diff leads with the wording cha
 
 ## Components
 
-### 1. The fact guard (`_guard_ok`, deterministic, no network)
+### 1. The fact guard (`_guard_ok`, deterministic, no network) — numbers-only
 
-The safety core. Built once per tailor run:
+The deterministic block is on **fabricated numbers** only. `_numbers(text)` = the set of digit-runs
+(commas stripped, e.g. `500K`→`500`, `10,000`→`10000`).
 
-- `allowed_vocab`: the set of normalized word-tokens drawn from **`master.tex` + every
-  `profile/*.md` + `profile/candidate_skills.yaml`**. `ResumeTailor` only knows the master today,
-  so it gains a `fact_corpus: str` constructor input — the profile/skills text. `build_tools`
-  builds it from the existing knowledge base (`KnowledgeBase.full_context()`, which already loads
-  `profile/*.md`) plus the raw `candidate_skills.yaml` text. Vocab is computed once and cached.
-- `STOPWORDS`: a curated module-level set of function words + common résumé verbs/adjectives
-  (e.g. *a, the, for, with, using, and, of, to, built, designed, developed, led, improved,
-  scalable, robust*). Stopwords never trigger rejection.
+`_guard_ok(original, reword)` returns **False (reject)** iff `reword` contains a digit-run not in
+`original` — i.e. it would invent a metric (a count, %, scale). Otherwise **True**: ordinary synonym
+rewording (verbs/adjectives/phrasing) is allowed. On reject the caller keeps the original bullet.
 
-Tokenization (applied to both the corpus and each bullet): strip LaTeX markup (`\cmd{...}` → its
-text, drop `$…$`, `\\`, `&`, `%`, braces), split on whitespace and `/`, lowercase, strip
-surrounding punctuation, and light suffix-normalize (drop a trailing `s/es/ed/ing/d`) to avoid
-plural/tense false-rejects. Numbers are the digit-runs (`\d[\d,.]*` → digits only, e.g.
-`500K`→`500`, `10--20`→`10`,`20`).
+`assert_no_new_facts` is the document-level backstop: it raises only if the rendered tex contains a
+number not present anywhere in the master + profile (`_master_numbers`, built once in `__init__`
+from the master sections + project blocks + a `fact_corpus` constructor input = the knowledge base
++ `candidate_skills.yaml`). Wording is **not** checked.
 
-`_guard_ok(original, reword)` returns **False (reject)** if either holds:
-- **(a) new number:** any digit-run in `reword` is not present in `original`'s digit-runs.
-- **(b) new content word:** any token in `reword` that is not a stopword and not a number is
-  absent from `allowed_vocab`.
-
-Otherwise **True (accept)**. On reject the caller keeps the original bullet.
-
-`assert_no_new_facts` is **redefined** to this vocab+number basis over the full rendered document
-(verbatim master text passes trivially; accepted rewords pass by construction). It stays as
-defense-in-depth and the deterministic expression of invariant 2.
+> **Design decision (2026-06-14, post-live-test):** the first cut used a vocabulary guard — every
+> non-stopword in a reword had to already appear in the candidate's résumé/profile. Live testing
+> showed this rejected **13 of 14** rewrites on ordinary synonyms (`architected`, `utilized`,
+> `optimized`, `delivered`…), gutting the feature: rephrasing *is* "use different words," so a
+> "must already appear" check rejects nearly all of it, and the LLM's `diff_narration` (written
+> before the guard culls anything) then overstated what survived. The real fabrication risk is new
+> **numbers/metrics** and invented **skills/tools** — not ordinary English. We block numbers
+> deterministically and rely on the **human review of the before/after diff** (read before
+> `/apply`) to catch an invented skill/tool. Invariant 2 is thus enforced by the number guard +
+> the review gate, not a vocabulary whitelist. (The vocabulary machinery — `_tokens`/`STOPWORDS`/
+> `_norm` — was removed.)
 
 ### 2. Bullet extraction / substitution
 
@@ -119,7 +115,9 @@ pre-feature. The accepted rewrites are kept only if they pass `_guard_ok`.
 
 ### 4. Diff / review gate
 
-`diff()` leads with the wording changes, then the structural summary:
+`diff()` leads with the wording changes, then the structural summary, then a **truthful,
+code-derived** one-liner — NOT the model's `diff_narration` prose (which describes its intent
+*before* the guard culls rewrites and tends to overstate; it is no longer shown):
 
 ```
 Reworded bullets:
@@ -129,10 +127,13 @@ Reworded bullets:
 
 Section order: experience → … (kept all sections)
 Projects shown: ipsec-dashboard, crudbot
-<diff_narration>
+
+N bullet(s) reworded (the ± lines above); everything else is verbatim from your master résumé.
 ```
 
-This is what you read before `/apply` — the human backstop for any reword the guard let through.
+This is what you read before `/apply` — the human backstop for any invented skill/tool, now that
+the guard only blocks numbers. (`diff_narration` is still returned by the model and stored on the
+plan, but it is not displayed.)
 
 ### 5. Config toggle
 

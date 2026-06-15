@@ -46,48 +46,14 @@ MIN_PROJECTS = 2  # default project floor (overridden by config.resume.min_proje
 _INPUT_RE = re.compile(r"\\input\{sections/([^}]+?)\.tex\}")
 _PROJECT_INPUT_RE = re.compile(r"\\input\{sections/projects/([^}]+?)\.tex\}")
 
-_WORD_RE = re.compile(r"[A-Za-z]+")
 _NUM_RE = re.compile(r"\d[\d,]*")
-_LATEX_CMD_RE = re.compile(r"\\[A-Za-z]+")
-
-
-def _norm(word: str) -> str:
-    """Lowercase + strip a common plural/tense suffix so 'containers' matches 'container'."""
-    w = word.lower()
-    for suf in ("ing", "ed", "s", "es", "d"):
-        if w.endswith(suf) and len(w) - len(suf) >= 3:
-            return w[: -len(suf)]
-    return w
-
-
-# Function words + generic résumé verbs/adjectives. These never trip the fact guard — only
-# content words (nouns, tools, skills, numbers) must trace to the candidate's own data. NOTE:
-# normalized with the SAME _norm as tokens, so e.g. "managed"->"manag" matches at compare time.
-STOPWORDS: frozenset[str] = frozenset(
-    _norm(w)
-    for w in """
-    a an the and or but for to of in on at by with from into as is are was were be been being
-    this that these those it its their our your his her my we you they i he she them us
-    using used use via per across over under between within without about above below
-    built build building designed design develop developed developing led lead leading
-    created create creating made make making implemented implement implementing
-    integrated integrate integrating improved improve improving managed manage managing
-    enabled enable enabling added add adding set setting up out leveraged leverage leveraging
-    deployed deploy deploying maintained maintain scaling scaled scalable robust custom
-    real time end full multi high low new own based around alongside top layer layers
-    work working hands on while which who whose where when then so than more most less
-    """.split()
-)
-
-
-def _tokens(text: str) -> set[str]:
-    """Normalized content-word tokens from prose or LaTeX (commands/markup stripped)."""
-    stripped = _LATEX_CMD_RE.sub(" ", text)
-    return {_norm(w) for w in _WORD_RE.findall(stripped)}
 
 
 def _numbers(text: str) -> set[str]:
-    """Digit-runs (commas removed), e.g. '500K'->'500', '10,000'->'10000'."""
+    """Digit-runs (commas removed), e.g. '500K'->'500', '10,000'->'10000'. The fact guard blocks
+    a reword that introduces a number absent from the original — fabricated metrics (counts, %,
+    scale) are the concrete fabrication risk; ordinary synonym rewording is allowed, with the
+    human review of the before/after diff as the backstop for any invented skill/tool."""
     return {m.replace(",", "") for m in _NUM_RE.findall(text)}
 
 
@@ -258,12 +224,15 @@ class ResumeTailor:
         self._min_projects = min_projects
         self._rephrase = rephrase
         self._disabled_sections = disabled_sections
+        # The number guard's allowed set: every digit-run already present anywhere in the master
+        # résumé + profile. ``fact_corpus`` (the knowledge base + skills) is folded in so a
+        # genuine figure the candidate has is never flagged. (No vocabulary check — ordinary
+        # synonym rewording is allowed; the human review of the diff is the backstop.)
         corpus = "\n".join(
             [s.content for s in master.sections.values()]
             + [p.content for p in master.projects]
             + [fact_corpus]
         )
-        self._allowed_vocab = _tokens(corpus)
         self._master_numbers = _numbers(corpus)
 
     def plan(self, jd: JDAnalysis, *, feedback: str | None = None) -> TailoringPlan:
@@ -385,27 +354,20 @@ class ResumeTailor:
         return "\n".join(parts)
 
     def _guard_ok(self, original: str, reword: str) -> bool:
-        """True if ``reword`` adds no fact: no number absent from ``original``, and every
-        non-stopword word is in the allowed vocabulary (master + profile + known skills) OR in
-        the original bullet itself (keeping an original word is always fine)."""
-        if not _numbers(reword) <= _numbers(original):
-            return False
-        allowed = self._allowed_vocab | _tokens(original)
-        content = {t for t in _tokens(reword) if t not in STOPWORDS}
-        return content <= allowed
+        """True unless ``reword`` introduces a NUMBER absent from ``original``. Ordinary synonym
+        rewording (verbs/adjectives/phrasing) is allowed — the only hard, deterministic block is
+        a fabricated metric. Any invented skill/tool is caught by the human review of the
+        before/after diff before /apply (CLAUDE.md invariant 2: the gate + the review)."""
+        return _numbers(reword) <= _numbers(original)
 
     def assert_no_new_facts(self, tailored_tex: str) -> None:
-        """Raise if the rendered tex introduces a number not in the master or a content word
-        outside the allowed vocabulary (master + profile + known skills). This is the
-        deterministic expression of CLAUDE.md invariant 2 for the (possibly reworded) resume."""
+        """Raise if the rendered tex introduces a number not present anywhere in the master +
+        profile — the deterministic backstop against fabricated metrics. Wording is not checked
+        (the per-bullet guard + the human review cover invented skills/tools)."""
         extra_numbers = _numbers(tailored_tex) - self._master_numbers
-        bad_words = {
-            t for t in _tokens(tailored_tex) if t not in STOPWORDS
-        } - self._allowed_vocab
-        if extra_numbers or bad_words:
+        if extra_numbers:
             raise TailoringError(
-                f"tailored resume adds facts not in master: "
-                f"numbers={sorted(extra_numbers)[:3]} words={sorted(bad_words)[:3]}"
+                f"tailored resume adds numbers not in master: {sorted(extra_numbers)[:3]}"
             )
 
     def diff(self, plan: TailoringPlan) -> str:
@@ -420,9 +382,16 @@ class ResumeTailor:
         lines.append(
             "Projects shown: " + (", ".join(plan.selected_project_ids) or "(none)")
         )
-        if plan.diff_narration:
-            lines.append("")
-            lines.append(plan.diff_narration)
+        lines.append("")
+        # Truthful, code-derived summary of what ACTUALLY changed — not the model's prose
+        # (which describes its intent before the guard, and tends to overstate).
+        n = len(plan.rephrased)
+        lines.append(
+            f"{n} bullet(s) reworded (the ± lines above); everything else is verbatim from "
+            "your master résumé."
+            if n
+            else "No bullets reworded — every line is verbatim from your master résumé."
+        )
         return "\n".join(lines)
 
     def tailored_document(self, plan: TailoringPlan) -> str:

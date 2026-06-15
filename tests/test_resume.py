@@ -304,7 +304,9 @@ def test_diff_shows_before_after_for_reworded_bullets() -> None:
     out = ResumeTailor(_FakeProvider("{}"), m).diff(plan)
     assert "- Built python flask APIs for tooling" in out
     assert "+ Built python flask REST APIs" in out
-    assert "Section order:" in out and "why" in out
+    assert "Section order:" in out
+    # truthful, code-derived summary (NOT the model's diff_narration prose)
+    assert "1 bullet(s) reworded" in out
 
 
 # --- render + no-new-facts ---
@@ -331,38 +333,29 @@ def test_assert_no_new_facts_passes_for_subset_and_fails_for_addition() -> None:
         tailor.assert_no_new_facts("EXP\n\\resumeItem{Fabricated 10 years at Google}")
 
 
-def test_guard_accepts_in_vocab_reword() -> None:
-    m = _master()
-    t = ResumeTailor(_FakeProvider("{}"), m, fact_corpus="kubernetes containers postgres")
-    # original mentions "container"; reword uses in-vocab words only, no new numbers
-    assert t._guard_ok("Built container tooling", "Built Kubernetes containers") is True
+def test_guard_allows_synonym_rewording() -> None:
+    # Numbers-only guard: ordinary synonym rewording (no new number) is allowed — including a
+    # tech word not in the master; the human review of the diff is the backstop for that.
+    t = ResumeTailor(_FakeProvider("{}"), _master())
+    assert t._guard_ok("Built APIs for tooling", "Architected and shipped Kubernetes APIs") is True
 
 
 def test_guard_rejects_new_number() -> None:
-    t = ResumeTailor(_FakeProvider("{}"), _master(), fact_corpus="")
+    t = ResumeTailor(_FakeProvider("{}"), _master())
     assert t._guard_ok("Built APIs for tooling", "Built APIs handling 1000000 requests") is False
 
 
-def test_guard_rejects_out_of_vocab_word() -> None:
-    t = ResumeTailor(_FakeProvider("{}"), _master(), fact_corpus="python flask")
-    # "kubernetes" is in neither the original, the master content, nor the fact_corpus
-    assert t._guard_ok("Built python flask APIs", "Built kubernetes python flask APIs") is False
+def test_guard_allows_reword_reusing_original_number() -> None:
+    t = ResumeTailor(_FakeProvider("{}"), _master())
+    assert t._guard_ok("Scaled to 500K nodes", "Scaled the system to 500K simulated nodes") is True
 
 
-def test_guard_stopwords_and_plurals_do_not_trip() -> None:
-    t = ResumeTailor(_FakeProvider("{}"), _master(), fact_corpus="container pipeline")
-    # plural "containers"/"pipelines" normalize to the singular in vocab; stopwords ignored
-    assert t._guard_ok("the container", "managed the containers and pipelines") is True
-
-
-def test_assert_no_new_facts_vocab_based() -> None:
-    # _master() section/project content: EXP, P, SK, IPSEC, CRUD
-    t = ResumeTailor(_FakeProvider("{}"), _master(), fact_corpus="")
-    t.assert_no_new_facts("EXP SK")  # all words in vocab -> ok
+def test_assert_no_new_facts_blocks_only_new_numbers() -> None:
+    # _master() content (EXP/P/SK/IPSEC/CRUD) has no digits.
+    t = ResumeTailor(_FakeProvider("{}"), _master())
+    t.assert_no_new_facts("EXP architected Kubernetes platform")  # new words -> OK (no number)
     with pytest.raises(TailoringError):
-        t.assert_no_new_facts("EXP kubernetes")  # out-of-vocab word
-    with pytest.raises(TailoringError):
-        t.assert_no_new_facts("EXP 4242")  # number not in master
+        t.assert_no_new_facts("EXP serving 4242 users")  # a number not in master -> blocked
 
 
 # --- diff + compile ---
@@ -376,7 +369,8 @@ def test_diff_describes_reorder_and_project_selection() -> None:
     diff = tailor.diff(plan)
     assert "skills" in diff.lower()
     assert "crudbot" in diff.lower()
-    assert "Led with skills." in diff
+    # no rewrites in this plan → the truthful summary says so (model prose is not shown)
+    assert "No bullets reworded" in diff
 
 
 @pytest.mark.skipif(shutil.which("tectonic") is None, reason="tectonic not installed")

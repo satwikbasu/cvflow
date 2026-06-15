@@ -100,9 +100,9 @@ resume:
   # if the model picks fewer; it may show more if strongly relevant). The LLM may not drop
   # enabled sections — use the sections: block below to disable any section explicitly.
   min_projects: 2
-  # true = the LLM rewords experience/project bullets to match the JD's language (a fact guard
-  # rejects any reword that adds a number/skill/claim not in your profile; rejected bullets keep
-  # the master wording). false = reorder/select only, no rewording.
+  # true = the LLM rewords experience/project bullets to match the JD's language (a guard rejects
+  # any reword that invents a NUMBER/metric not in the original; an invented skill/tool is caught
+  # by your review of the before/after diff before /apply). false = reorder/select only, no rewording.
   rephrase: true
   # Drop whole sections from the tailored résumé (default: every section shows). Only the ones
   # set to false are removed. Valid names: experience, education, projects, skills, certifications.
