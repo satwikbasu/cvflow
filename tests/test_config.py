@@ -322,19 +322,19 @@ def test_use_jd_analysis_reads_true(tmp_path: Path) -> None:
     assert cfg.resume.use_jd_analysis is True
 
 
-def test_min_projects_defaults_two_when_absent(tmp_path: Path) -> None:
-    # VALID_YAML omits min_projects; the absent-key default must be 2.
+def test_max_projects_defaults_two_when_absent(tmp_path: Path) -> None:
+    # VALID_YAML omits max_projects; the absent-key default must be 2.
     cfg = load_config(_write(tmp_path, VALID_YAML))
-    assert cfg.resume.min_projects == 2
+    assert cfg.resume.max_projects == 2
 
 
-def test_min_projects_reads_override(tmp_path: Path) -> None:
+def test_max_projects_reads_override(tmp_path: Path) -> None:
     yaml_text = VALID_YAML.replace(
         '  latex_compiler: "latexmk"\n',
-        '  latex_compiler: "latexmk"\n  min_projects: 3\n',
+        '  latex_compiler: "latexmk"\n  max_projects: 3\n',
     )
     cfg = load_config(_write(tmp_path, yaml_text))
-    assert cfg.resume.min_projects == 3
+    assert cfg.resume.max_projects == 3
 
 
 def test_rephrase_defaults_true_when_absent(tmp_path: Path) -> None:

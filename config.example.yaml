@@ -96,10 +96,10 @@ resume:
   # false = tailor from the cached discovery crux (no extra LLM call, works on every ranked job);
   # true  = re-analyze the stored JD text per job for richer required/preferred fields.
   use_jd_analysis: false
-  # minimum number of projects the tailored résumé always shows (floor — padded by relevance
-  # if the model picks fewer; it may show more if strongly relevant). The LLM may not drop
-  # enabled sections — use the sections: block below to disable any section explicitly.
-  min_projects: 2
+  # maximum number of projects the tailored résumé shows (cap — the model picks the most
+  # JD-relevant, truncated to this many; it may show fewer if fewer are relevant). The LLM may
+  # not drop enabled sections — use the sections: block below to disable any section explicitly.
+  max_projects: 2
   # true = the LLM rewords experience/project bullets to match the JD's language (a guard rejects
   # any reword that invents a NUMBER/metric not in the original; an invented skill/tool is caught
   # by your review of the before/after diff before /apply). false = reorder/select only, no rewording.

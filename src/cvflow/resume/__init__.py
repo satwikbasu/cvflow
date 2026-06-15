@@ -7,9 +7,9 @@ deterministic, exact check: every content line in the tailored ``.tex`` must
 already exist in the master. The LLM (same ``generate(prompt)->str`` seam as
 discovery/analysis) only chooses ordering + selection; deterministic code
 validates the plan (dropping anything fabricated), **never drops a section**
-(only reorders — omitted sections are appended in master order), keeps **at least**
-``min_projects`` projects (config ``resume.min_projects``; padded by master order if
-the model picks fewer), renders, asserts, and diffs. Compilation is via Tectonic.
+(only reorders — omitted sections are appended in master order), shows **at most**
+``max_projects`` projects (config ``resume.max_projects``; the model's most-relevant
+picks, truncated to the cap), renders, asserts, and diffs. Compilation is via Tectonic.
 
 Projects are chosen by JD relevance (e.g. a Java/Spring Boot role → CRUDbot).
 """
@@ -38,10 +38,10 @@ __all__ = [
     "ResumeTailor",
     "TailoringError",
     "CompileError",
-    "MIN_PROJECTS",
+    "MAX_PROJECTS",
 ]
 
-MIN_PROJECTS = 2  # default project floor (overridden by config.resume.min_projects)
+MAX_PROJECTS = 2  # default project cap (overridden by config.resume.max_projects)
 
 _INPUT_RE = re.compile(r"\\input\{sections/([^}]+?)\.tex\}")
 _PROJECT_INPUT_RE = re.compile(r"\\input\{sections/projects/([^}]+?)\.tex\}")
@@ -214,14 +214,14 @@ class ResumeTailor:
         provider: _Provider,
         master: Master,
         *,
-        min_projects: int = MIN_PROJECTS,
+        max_projects: int = MAX_PROJECTS,
         fact_corpus: str = "",
         rephrase: bool = True,
         disabled_sections: frozenset[str] = frozenset(),
     ) -> None:
         self._provider = provider
         self._master = master
-        self._min_projects = min_projects
+        self._max_projects = max_projects
         self._rephrase = rephrase
         self._disabled_sections = disabled_sections
         # The number guard's allowed set: every digit-run already present anywhere in the master
@@ -277,9 +277,10 @@ class ResumeTailor:
         # drop an enabled one).
         order = [s for s in order if s not in self._disabled_sections]
 
-        # Projects: keep the model's relevant picks, then PAD up to the configured floor
-        # (master order) so the resume always shows at least ``min_projects`` (or all, if
-        # fewer exist). No upper cap — a strongly-relevant extra project is kept.
+        # Projects: the model's most-relevant picks, capped at ``max_projects`` (it returns
+        # them most-relevant-first, so truncation keeps the best). Showing FEWER is fine — that's
+        # the model judging fewer relevant. Only if it picked NONE do we fall back to master
+        # order (up to the cap), so an enabled Projects section is never left empty.
         if "projects" in self._disabled_sections:
             picks: list[str] = []
         else:
@@ -291,13 +292,9 @@ class ResumeTailor:
                 if p in pid_set and p not in seen_pids:
                     picks.append(p)
                     seen_pids.add(p)
-            floor = min(self._min_projects, len(valid_pids))
-            for pid in valid_pids:
-                if len(picks) >= floor:
-                    break
-                if pid not in seen_pids:
-                    picks.append(pid)
-                    seen_pids.add(pid)
+            if not picks:
+                picks = list(valid_pids)
+            picks = picks[: max(self._max_projects, 0)]
 
         rephrased = self._accept_rewrites(candidates, d.get("rewrites")) if candidates else {}
 

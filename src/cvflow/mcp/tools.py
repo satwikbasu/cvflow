@@ -287,7 +287,7 @@ def build_tools(config: Any) -> CvflowTools:
     tailor = ResumeTailor(
         tailoring,
         parse_master(master_root),
-        min_projects=config.resume.min_projects,
+        max_projects=config.resume.max_projects,
         fact_corpus=fact_corpus,
         rephrase=config.resume.rephrase,
         disabled_sections=config.resume.disabled_sections,

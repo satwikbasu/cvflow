@@ -250,8 +250,8 @@ files, add a "REVIEW THESE" section listing every value you had to estimate or a
       EACH project block above, then \resumeSubHeadingListEnd.
     The number of project block files (and \input lines) MUST equal the number of projects
     you keep in profile/projects/. A project that exists in profile/ but is not given a
-    block + an \input line will NOT appear on any tailored résumé and will NOT count toward
-    the `resume.min_projects` floor.
+    block + an \input line will NOT appear on any tailored résumé (and the
+    `resume.max_projects` cap only ever picks from the wired-in blocks).
 
 ## Final reminder
 Every fact must trace to my résumé(s) or the values I gave above. Leave unknowns blank.
@@ -286,8 +286,8 @@ directly change what you see.
    `\input{sections/projects/<slug>.tex}` line inside `resume/sections/projects.tex`.
    **Delete** the previous candidate's project blocks + their `\input` lines. The count of
    project blocks here is the *only* thing that decides how many projects can appear: the
-   tailorer can never show (or count toward `resume.min_projects`) a project that isn't a
-   wired-in `.tex` block — even if it's described in `profile/projects/`. Rule of thumb:
+   tailorer can never show a project that isn't a wired-in `.tex` block — even if it's
+   described in `profile/projects/` — and `resume.max_projects` only caps from those. Rule of thumb:
    `# of \input lines in projects.tex` == `# of files in profile/projects/` == the most
    projects a tailored résumé can show.
 4. **Wipe the previous candidate's runtime data (recommended).** The SQLite store and any
@@ -336,8 +336,9 @@ Checklist:
 - **Keep your project `.tex` blocks in sync with `profile/projects/`.** Adding a project to
   `profile/` is not enough — the tailorer only sees projects that have a
   `resume/sections/projects/<slug>.tex` block AND an `\input` line in `projects.tex`. If you
-  add (or remove) a project, update both. And `resume.min_projects` can't exceed the number
-  of wired-in blocks — set `min_projects: 3` with only 2 blocks and you'll still get 2.
+  add (or remove) a project, update both. `resume.max_projects` caps how many of your wired-in
+  blocks appear (the model picks the most JD-relevant up to that many; only blocks that exist
+  can be shown).
 - **The system never fabricates facts about you.** Empty `form_fields.json` values and
   `<!-- to fill -->` essay slots are deliberate: cvflow asks you in chat rather than
   guessing. Fill them when you can; don't have the LLM invent them.
