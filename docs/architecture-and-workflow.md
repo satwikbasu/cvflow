@@ -148,6 +148,7 @@ by construction the agent has no approve tool.**
 | `request_review` | discovered→pending_review, tailor + compile PDF, return PDF path + diff + analysis | Cerebras |
 | `compose_essay` | grounded free-text answer or a clarification flag | Cerebras |
 | `status_report` | counts per status | — |
+| `display_last_digest` | re-show the most recent digest verbatim (persisted at discovery time); `{digest: None, message}` if none yet | — |
 | `submit` | asserts `guard_can_submit` (approved only) — raises otherwise | — |
 | `fill_application` | drive the browser to fill the approved app (gated) | Cerebras (field essays) |
 | `resume_application` | continue a paused fill with a user clarification answer | Cerebras |

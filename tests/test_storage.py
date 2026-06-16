@@ -31,6 +31,22 @@ def test_add_and_get_round_trip() -> None:
     assert fetched.discovered_at  # populated
 
 
+def test_last_digest_round_trip_and_overwrite() -> None:
+    store = _store()
+    assert store.get_last_digest() is None  # nothing persisted yet
+    store.set_last_digest("🗞️ digest one")
+    row = store.get_last_digest()
+    assert row is not None
+    text, generated_at = row
+    assert text == "🗞️ digest one"
+    assert generated_at  # ISO timestamp recorded
+    # overwriting keeps a single row, not an append
+    store.set_last_digest("🗞️ digest two")
+    second = store.get_last_digest()
+    assert second is not None
+    assert second[0] == "🗞️ digest two"
+
+
 def test_duplicate_job_id_raises() -> None:
     store = _store()
     store.add("job-1", "Acme", "SRE", "u")

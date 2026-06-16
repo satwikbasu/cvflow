@@ -64,6 +64,19 @@ def test_run_job_discover_sends_digest():
     assert notes and "https://jobs/indeed:7" in notes[0]
 
 
+def test_run_job_discover_persists_last_digest():
+    store = ApplicationStore(":memory:")
+
+    class _Disc:
+        def discover(self, progress=lambda _m: None):
+            return _result()
+
+    run_job("discover", store=store, discovery=_Disc(), otp=None, notify=lambda m: None)
+    row = store.get_last_digest()
+    assert row is not None
+    assert row[0] == format_digest(_result())  # stored verbatim for re-display
+
+
 def test_run_job_sweep_otp_calls_expire_overdue():
     called = {"n": 0}
 

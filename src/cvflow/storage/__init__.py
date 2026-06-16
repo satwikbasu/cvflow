@@ -95,6 +95,11 @@ CREATE TABLE IF NOT EXISTS digest_slots (
     job_id       TEXT NOT NULL,
     presented_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS last_digest (
+    id           INTEGER PRIMARY KEY CHECK (id = 1),
+    digest       TEXT NOT NULL,
+    generated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS job_cruxes (
     job_id        TEXT PRIMARY KEY,
     crux_json     TEXT NOT NULL,
@@ -344,6 +349,23 @@ class ApplicationStore:
             "SELECT job_id FROM digest_slots ORDER BY slot"
         ).fetchall()
         return [r["job_id"] for r in rows]
+
+    def set_last_digest(self, text: str) -> None:
+        """Persist the most recent rendered digest verbatim (single row) for re-display."""
+        with self._conn:
+            self._conn.execute(
+                "INSERT INTO last_digest (id, digest, generated_at) VALUES (1, ?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET "
+                "digest = excluded.digest, generated_at = excluded.generated_at",
+                (text, _now()),
+            )
+
+    def get_last_digest(self) -> tuple[str, str] | None:
+        """Return (digest_text, generated_at) for the most recent digest, or None."""
+        row = self._conn.execute(
+            "SELECT digest, generated_at FROM last_digest WHERE id = 1"
+        ).fetchone()
+        return (row["digest"], row["generated_at"]) if row is not None else None
 
     def save_analysis(self, job_id: str, analysis: JDAnalysis) -> None:
         """Persist the JD analysis linked to an existing application record."""

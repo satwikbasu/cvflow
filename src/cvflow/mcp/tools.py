@@ -29,6 +29,7 @@ TOOL_NAMES: tuple[str, ...] = (
     "request_review",
     "compose_essay",
     "status_report",
+    "display_last_digest",
 )
 
 
@@ -215,6 +216,24 @@ class CvflowTools:
     def status_report(self) -> dict[str, int]:
         """Return a count of applications per status."""
         return {s.value: len(self._store.list_by_status(s)) for s in Status}
+
+    def display_last_digest(self) -> dict[str, Any]:
+        """Re-show the most recent job digest, exactly as it was first sent to the chat.
+
+        USE THIS when asked to see today's jobs again ("show me the digest", "what
+        were today's jobs?", "list them again"). Returns the verbatim digest text —
+        same numbering and /apply | /skip lines — so the ordinals still match. The
+        job numbers stay valid until the next discovery run. If no digest exists yet,
+        returns ``digest: None`` with a message telling the user to run /discover.
+        """
+        row = self._store.get_last_digest()
+        if row is None:
+            return {
+                "digest": None,
+                "message": "No digest yet — run /discover to generate today's jobs.",
+            }
+        digest, generated_at = row
+        return {"digest": digest, "generated_at": generated_at}
 
     # ------------------------------------------------------------------
     # Discovery

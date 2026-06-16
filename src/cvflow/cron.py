@@ -174,6 +174,7 @@ def run_job(
                 ordered = [bj.posting.job_id for bj in result.get("M", []) + result.get("N", [])]
                 store.set_digest_slots(ordered)
                 digest = format_digest(result)
+                store.set_last_digest(digest)  # persist verbatim for display_last_digest
                 log_path = None
                 if log_dir:
                     chunks = format_drop_report(result.get("_drop_records", []))

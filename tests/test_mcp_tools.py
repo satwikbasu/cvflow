@@ -24,8 +24,28 @@ def test_tool_names_excludes_automation_and_approve():
     assert forbidden.isdisjoint(TOOL_NAMES)
     assert set(TOOL_NAMES) == {
         "ping", "discover", "analyze_jd", "list_applications", "get_application",
-        "request_review", "compose_essay", "status_report",
+        "request_review", "compose_essay", "status_report", "display_last_digest",
     }
+
+
+def test_display_last_digest_returns_stored_text(tmp_path):
+    from cvflow.storage import ApplicationStore
+
+    store = ApplicationStore(":memory:")
+    store.set_last_digest("🗞️ cvflow — new jobs today:\n1. Backend @ Acme")
+    tools = CvflowTools(
+        store=store, knowledge=None, discovery=None, analyzer=None, tailor=None
+    )
+    out = tools.display_last_digest()
+    assert out["digest"].startswith("🗞️ cvflow")
+    assert out["generated_at"]
+
+
+def test_display_last_digest_no_digest_yet_returns_message(tmp_path):
+    tools = _tools(tmp_path)
+    out = tools.display_last_digest()
+    assert out["digest"] is None
+    assert "discover" in out["message"].lower()  # tells the user how to get one
 
 
 def test_ping_returns_ok(tmp_path):

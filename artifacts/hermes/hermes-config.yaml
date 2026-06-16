@@ -16,7 +16,7 @@ mcp_servers:
       # plugin → cvflow.tailor_command, off the agent loop), so analyze_jd + request_review
       # are dropped.
       include: [ping, discover, list_applications, get_application,
-            compose_essay, status_report]
+            compose_essay, status_report, display_last_digest]
 providers: {}
 fallback_providers: []
 credential_pool_strategies: {}
